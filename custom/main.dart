@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'ai_features.dart';
 import 'ai_music_chat.dart';
 import 'tab_dock.dart';
+import 'tidal_style.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Globals
@@ -4567,6 +4568,9 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         if (appState.appStyle == 'pocket') {
           return _pocketScaffold(context, pal, tracks);
         }
+        if (appState.appStyle == 'tidal') {
+          return _tidalScaffold(context, pal, tracks);
+        }
 
         return Scaffold(
           backgroundColor: pal.bg,
@@ -5008,6 +5012,8 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
   }
 
   // ═══════════════════════ bitLMP Signal app style ═══════════════════════
+
+  Widget _tidalScaffold(BuildContext context, AppPalette pal, List<TrackItem> tracks) => TidalAppShell(tracks: tracks, aiChatBuilder: _aiPageStd);
 
   Widget _signalScaffold(
       BuildContext context, AppPalette pal, List<TrackItem> tracks) {
@@ -15167,6 +15173,18 @@ class NowPlayingScreen extends StatelessWidget {
                 ),
               );
             }
+            if (appState.playerStyle == 'tidal') {
+              return SwipeDownDismiss(
+                child: TidalPlayerView(
+                  track: track,
+                  playing: playing,
+                  loading: loading,
+                  shuffle: shuffle,
+                  repeat: repeat,
+                  liked: liked,
+                ),
+              );
+            }
 
             return SwipeDownDismiss(
               child: Scaffold(
@@ -17220,6 +17238,7 @@ class SettingsScreen extends StatelessWidget {
             'pocket': 'Pocket',
             'community': 'Community Suggested',
             'apple': 'Apple Music',
+            'tidal': 'Tidal',
           },
           (v) {
             appState.setStr('app_style', v);
@@ -17227,6 +17246,7 @@ class SettingsScreen extends StatelessWidget {
             if (v == 'apple') appState.setPlayerStyle('apple');
             if (v == 'plus') appState.setPlayerStyle('plus');
             if (v == 'signal') appState.setPlayerStyle('signal');
+            if (v == 'tidal') appState.setPlayerStyle('tidal');
           },
         ),
         _dropdown<String>(
@@ -17245,6 +17265,7 @@ class SettingsScreen extends StatelessWidget {
             'expressive': 'Expressive',
             'apple': 'Apple Music',
             'jog': 'Community Suggested (Jog Wheel)',
+            'tidal': 'Tidal',
           },
           appState.setPlayerStyle,
         ),
@@ -24100,6 +24121,7 @@ class _SetupScreenState extends State<SetupScreen> {
       'pocket': 'Pocket',
       'community': 'Community',
       'apple': 'Apple Music',
+      'tidal': 'Tidal',
     };
     const players = {
       'bloom': 'Bloom',
@@ -24111,6 +24133,7 @@ class _SetupScreenState extends State<SetupScreen> {
       'expressive': 'Expressive',
       'apple': 'Apple Music',
       'jog': 'Jog Wheel',
+      'tidal': 'Tidal',
     };
     Widget title(String t, String b) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -24224,7 +24247,8 @@ class _SetupScreenState extends State<SetupScreen> {
                         if (e.key == 'plus' ||
                             e.key == 'apple' ||
                             e.key == 'bloom' ||
-                            e.key == 'signal') {
+                            e.key == 'signal' ||
+                            e.key == 'tidal') {
                           appState.setPlayerStyle(e.key);
                         }
                       }, accent),
@@ -34157,6 +34181,7 @@ class _YtArtistScreenState extends State<YtArtistScreen> {
           final name = page?.name ?? widget.name;
           final banner = page?.banner ?? page?.thumbnail ?? widget.thumbnail;
           final screenW = MediaQuery.of(context).size.width;
+          if (tidalLook) return _tidalArtist(context, page, snap);
           if (bloomLook) return _bloomArtist(context, page, snap);
 
           final slivers = <Widget>[
@@ -36897,6 +36922,7 @@ class LocalCollectionScreen extends StatelessWidget {
 // Material You "Bloom": lilac tones, scalloped cookie shapes, wavy progress.
 
 bool get bloomLook => appState.appStyle == 'bloom';
+bool get tidalLook => appState.appStyle == 'tidal';
 
 /// Bloom colours, made from the current theme colour (lilac by default).
 class BloomColors {
