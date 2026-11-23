@@ -1512,9 +1512,13 @@ class _TidalAppShellState extends State<TidalAppShell> {
             );
           }),
           rowItem(Icons.music_note_outlined, 'Tracks', () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
-            );
+            if (ytAccount.value.signedIn) {
+              openYtLikedMusic(context);
+            } else {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+              );
+            }
           }),
           rowItem(Icons.play_arrow_outlined, 'Videos', () {
             showSearchSheet(context);
