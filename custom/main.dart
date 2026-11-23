@@ -618,7 +618,12 @@ class AppState extends ChangeNotifier {
     if (prefs.getString('app_icon') == 'glass') {
       await prefs.setString('app_icon', 'bloom');
     }
-    playerStyle = prefs.getString('player_style') ?? 'bloom';
+    if (prefs.getBool('tidal_default_v2') != true) {
+      await prefs.setString('app_style', 'tidal');
+      await prefs.setString('player_style', 'tidal');
+      await prefs.setBool('tidal_default_v2', true);
+    }
+    playerStyle = prefs.getString('player_style') ?? 'tidal';
     // The Prestige player was removed.
     if (playerStyle == 'prestige') playerStyle = 'alex';
     animatedBackground = prefs.getBool('animated_bg') ?? false;
@@ -12473,9 +12478,10 @@ class PlaylistDetailScreen extends StatelessWidget {
         ].where((x) => x.isNotEmpty).join(' • ');
 
         void playFrom(int i) {
-          audioHandler.playYouTubeList(tracks, i);
+          audioHandler.playYouTubeList(tracks, i, lockToScope: true);
           openPlayer(context);
         }
+        if (tidalLook) return buildTidalPlaylistView(context, pl, tracks, playFrom);
 
         Widget pill(String label, IconData icon, VoidCallback onTap,
                 {bool primary = false}) =>
@@ -18535,6 +18541,12 @@ void showPlaylistEditDialog(BuildContext context) {
 }
 
 void showSearchSheet(BuildContext context, {String? query}) {
+  if (tidalLook) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TidalSearchScreen(initialQuery: query),
+    ));
+    return;
+  }
   Navigator.of(context).push(PageRouteBuilder(
     transitionDuration: const Duration(milliseconds: 320),
     reverseTransitionDuration: const Duration(milliseconds: 240),
@@ -30876,7 +30888,7 @@ class _ClockPainter extends CustomPainter {
 // When you publish a release: bump kAppVersion here to the SAME number as the
 // release tag (tag v2.2.0  ->  kAppVersion '2.2.0').
 
-const String kAppVersion = '3.8.5';
+const String kAppVersion = '3.8.7';
 /// "Support my project" card at the very top of Settings.
 class SupportCard extends StatefulWidget {
   const SupportCard({super.key});
@@ -33063,6 +33075,7 @@ class _YtAlbumScreenState extends State<YtAlbumScreen> {
     return FutureBuilder<YtAlbumPage>(
       future: _future,
       builder: (context, snap) {
+        if (tidalLook) return buildTidalAlbumView(context, widget.album, snap, _cached, isPlaylist: widget.playlistId != null);
         if (bloomLook) return _bloomPage(context, snap);
         return _YtPageShell(buildBody: (context) {
           final pal = appState.palette;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
@@ -7,46 +8,72 @@ import 'ai_features.dart';
 import 'ai_music_chat.dart';
 import 'main.dart';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TIDAL APP & PLAYER STYLE (Exact match to Tidal Mobile UI screenshots)
-// ═══════════════════════════════════════════════════════════════════════════
-
 const Color kTidalBg = Color(0xFF000000);
 const Color kTidalSurface = Color(0xFF1A1A1D);
 const Color kTidalDockBg = Color(0xFF1F1E22);
 const Color kTidalPillActive = Color(0xFF333237);
-const Color kTidalBadgeBg = Color(0xFFE5E5EA);
 const Color kTidalText1 = Color(0xFFFFFFFF);
 const Color kTidalText2 = Color(0xFF9A9AA0);
 
-class TidalExplicitBadge extends StatelessWidget {
-  const TidalExplicitBadge({super.key});
+/// Global tab switcher so tapping any tab on a sub-page (Search, Album,
+/// Playlist, Artist) pops back to TidalAppShell AND switches to that exact tab.
+final ValueNotifier<int?> tidalTabRequest = ValueNotifier<int?>(null);
+
+void tidalNavigateToTab(BuildContext context, int tabIndex) {
+  tidalTabRequest.value = tabIndex;
+  Navigator.of(context).popUntil((route) => route.isFirst);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BITLMP APP ICON MARK (Disc with 3 sound bars for Tab 4: AI DJ)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TidalBitLmpMark extends StatelessWidget {
+  final double size;
+  final Color color;
+  const TidalBitLmpMark({super.key, required this.size, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 15,
-      height: 15,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: kTidalBadgeBg,
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: const Text(
-        'E',
-        style: TextStyle(
-          color: Colors.black,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w900,
-          height: 1.0,
-        ),
-      ),
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _BitLmpMarkPainter(color)),
     );
   }
 }
 
-/// Floating unified Tidal Dock: Mini-player on top + 5-tab icon row underneath
-/// inside one dark rounded-rectangle container (radius 28).
+class _BitLmpMarkPainter extends CustomPainter {
+  final Color color;
+  const _BitLmpMarkPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2;
+    canvas.drawCircle(c, r, Paint()..color = color);
+
+    final cut = Paint()
+      ..color = kTidalDockBg
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = size.width * 0.13;
+    const heights = [0.16, 0.28, 0.21];
+    for (int i = -1; i <= 1; i++) {
+      final x = c.dx + i * (size.width * 0.21);
+      final h = size.height * heights[i + 1];
+      canvas.drawLine(Offset(x, c.dy - h), Offset(x, c.dy + h), cut);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BitLmpMarkPainter old) => old.color != color;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FLOATING UNIFIED TIDAL DOCK (Mini-player + 5 Tabs)
+// Tab 0: Home | Tab 1: Updates | Tab 2: Explore | Tab 3: Library (|||) | Tab 4: AI (bitLMP mark)
+// ═══════════════════════════════════════════════════════════════════════════
+
 class TidalUnifiedDock extends StatelessWidget {
   final int selectedTab;
   final ValueChanged<int> onSelectTab;
@@ -113,22 +140,15 @@ class TidalUnifiedDock extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                              track.title,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                          
-                                        ],
+                                      Text(
+                                        track.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
@@ -193,12 +213,11 @@ class TidalUnifiedDock extends StatelessWidget {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _navItem(0, Icons.music_note_rounded, 'Home'),
-                            _navItem(
-                                1, Icons.notifications_none_rounded, 'Updates'),
-                            _navItem(2, Icons.search_rounded, 'Explore'),
-                            _navItem(3, Icons.auto_awesome_rounded, 'AI DJ'),
-                            _navItem(4, Icons.arrow_upward_rounded, 'Collection'),
+                            _navItem(0, Icons.music_note_rounded),
+                            _navItem(1, Icons.notifications_none_rounded),
+                            _navItem(2, Icons.search_rounded),
+                            _navItem(3, Icons.library_music_rounded),
+                            _navItem(4, Icons.auto_awesome_rounded),
                           ],
                         ),
                       ),
@@ -213,8 +232,48 @@ class TidalUnifiedDock extends StatelessWidget {
     );
   }
 
-  Widget _navItem(int index, IconData icon, String label) {
+  Widget _navItem(int index, IconData icon) {
     final active = selectedTab == index;
+    Widget child;
+    if (index == 3) {
+      // Tab 3: Library / Collection (||| bars)
+      child = Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+                width: 2.2,
+                height: 15,
+                color: active ? Colors.white : kTidalText2),
+            const SizedBox(width: 3.5),
+            Container(
+                width: 2.2,
+                height: 15,
+                color: active ? Colors.white : kTidalText2),
+            const SizedBox(width: 3.5),
+            Container(
+                width: 2.2,
+                height: 15,
+                color: active ? Colors.white : kTidalText2),
+          ],
+        ),
+      );
+    } else if (index == 4) {
+      // Tab 4: AI DJ (bitLMP disc-with-3-bars mark)
+      child = Center(
+        child: TidalBitLmpMark(
+          size: 22,
+          color: active ? Colors.white : kTidalText2,
+        ),
+      );
+    } else {
+      child = Icon(
+        icon,
+        size: 23,
+        color: active ? Colors.white : kTidalText2,
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -229,43 +288,14 @@ class TidalUnifiedDock extends StatelessWidget {
           color: active ? kTidalPillActive : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: index == 3
-            ? Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 2.2,
-                      height: 15,
-                      color: active ? Colors.white : kTidalText2,
-                    ),
-                    const SizedBox(width: 3.5),
-                    Container(
-                      width: 2.2,
-                      height: 15,
-                      color: active ? Colors.white : kTidalText2,
-                    ),
-                    const SizedBox(width: 3.5),
-                    Container(
-                      width: 2.2,
-                      height: 15,
-                      color: active ? Colors.white : kTidalText2,
-                    ),
-                  ],
-                ),
-              )
-            : Icon(
-                icon,
-                size: 23,
-                color: active ? Colors.white : kTidalText2,
-              ),
+        child: child,
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIDAL FULL-SCREEN PLAYER (Screenshot 1)
+// TIDAL FULL-SCREEN PLAYER
 // ═══════════════════════════════════════════════════════════════════════════
 
 class TidalPlayerView extends StatelessWidget {
@@ -313,7 +343,6 @@ class TidalPlayerView extends StatelessWidget {
                 child: Column(
                   children: [
                     const SizedBox(height: 10),
-                    // Top bar: overlapping circular art badges on left + speaker icon button on right
                     Row(
                       children: [
                         GestureDetector(
@@ -377,7 +406,6 @@ class TidalPlayerView extends StatelessWidget {
                       ],
                     ),
                     const Spacer(flex: 2),
-                    // Crisp square artwork with subtle rounded corners (8px)
                     AspectRatio(
                       aspectRatio: 1.0,
                       child: Container(
@@ -402,7 +430,6 @@ class TidalPlayerView extends StatelessWidget {
                       ),
                     ),
                     const Spacer(flex: 2),
-                    // Track title + Explicit 'E' badge + Artist + White circular checkmark button
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -410,26 +437,19 @@ class TidalPlayerView extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Flexible(
-                                    child: GestureDetector(
-                                      onTap: () => goToAlbum(context, track),
-                                      child: Text(
-                                        track.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.3,
-                                        ),
-                                      ),
-                                    ),
+                              GestureDetector(
+                                onTap: () => goToAlbum(context, track),
+                                child: Text(
+                                  track.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.3,
                                   ),
-                                  
-                                ],
+                                ),
                               ),
                               const SizedBox(height: 4),
                               GestureDetector(
@@ -473,14 +493,12 @@ class TidalPlayerView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    // Tidal thin seekbar with vertical pill thumb + "16-BIT 44.1kHz FLAC" badge
                     StreamBuilder<PlaybackState>(
                       stream: audioHandler.playbackState,
                       builder: (context, pSnap) {
                         final pos = pSnap.data?.position ?? Duration.zero;
                         final dur = audioHandler.player.duration ??
-                            Duration(
-                                seconds: max(track.durationSeconds, 1));
+                            Duration(seconds: max(track.durationSeconds, 1));
                         final maxMs = max(dur.inMilliseconds, 1);
                         final val =
                             pos.inMilliseconds.clamp(0, maxMs).toDouble();
@@ -544,7 +562,6 @@ class TidalPlayerView extends StatelessWidget {
                       },
                     ),
                     const SizedBox(height: 18),
-                    // Transport row: Shuffle, Previous, large white Play/Pause, Next, Repeat
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -627,7 +644,6 @@ class TidalPlayerView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Bottom bar: Queue circle button + "Playing from" source + Share & More circle buttons
                     Row(
                       children: [
                         ListenableBuilder(
@@ -780,7 +796,7 @@ class _TidalVerticalThumbShape extends SliderComponentShape {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIDAL APP SCREENS: Home, Updates, Explore, AI DJ, Collection (Screenshots 2-6)
+// TIDAL APP SHELL (5 Tabs: Home, Updates, Explore, Library, AI DJ)
 // ═══════════════════════════════════════════════════════════════════════════
 
 class TidalAppShell extends StatefulWidget {
@@ -797,9 +813,28 @@ class TidalAppShell extends StatefulWidget {
 }
 
 class _TidalAppShellState extends State<TidalAppShell> {
-  int _tab = 0; // 0 = Home, 1 = Updates, 2 = Explore, 3 = AI DJ, 4 = Collection
+  int _tab = 0; // 0=Home, 1=Updates, 2=Explore, 3=Library(|||), 4=AI(bitLMP mark)
   String _homeFilter = 'For you';
   bool _genresAsList = false;
+
+  @override
+  void initState() {
+    super.initState();
+    tidalTabRequest.addListener(_onTabRequested);
+  }
+
+  @override
+  void dispose() {
+    tidalTabRequest.removeListener(_onTabRequested);
+    super.dispose();
+  }
+
+  void _onTabRequested() {
+    final req = tidalTabRequest.value;
+    if (req == null || !mounted) return;
+    tidalTabRequest.value = null;
+    setState(() => _tab = req);
+  }
 
   void _playList(List<TrackItem> list, int i) {
     if (list.isEmpty) return;
@@ -819,10 +854,10 @@ class _TidalAppShellState extends State<TidalAppShell> {
         page = _buildExploreTab();
         break;
       case 3:
-        page = widget.aiChatBuilder(pal);
+        page = _buildCollectionTab();
         break;
       case 4:
-        page = _buildCollectionTab();
+        page = widget.aiChatBuilder(pal);
         break;
       default:
         page = _buildHomeTab();
@@ -848,15 +883,13 @@ class _TidalAppShellState extends State<TidalAppShell> {
     );
   }
 
-  // ── TAB 0: TIDAL HOME (Screenshot 3) ─────────────────────────────────────
+  // ── TAB 0: HOME ──────────────────────────────────────────────────────────
   Widget _buildHomeTab() {
     final all = widget.tracks;
     final topPad = MediaQuery.of(context).padding.top;
     final screenW = MediaQuery.of(context).size.width;
     final cardW = (screenW - 32 - 14) / 2;
 
-    // Group tracks by artist / album to build Tidal's "Because you liked <Artist>"
-    // and "Suggested new albums for you" grids
     final byArtist = <String, List<TrackItem>>{};
     for (final t in all) {
       if (t.artist.isNotEmpty && t.artist != 'Unknown Artist') {
@@ -877,7 +910,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
       child: ListView(
         padding: EdgeInsets.fromLTRB(16, topPad > 0 ? 8 : 16, 16, 165),
         children: [
-          // Header: Bold "Home" + Gear Settings Icon
           Row(
             children: [
               const Expanded(
@@ -902,7 +934,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
             ],
           ),
           const SizedBox(height: 10),
-          // Filter pills: "For you" (white active pill), "Staff Picks", "Uploads"
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -941,7 +972,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
             ),
           ),
           const SizedBox(height: 22),
-          // "Because you liked <Artist>" section header with avatar + "View all"
           Row(
             children: [
               if (featuredTracks.isNotEmpty)
@@ -994,7 +1024,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
             ],
           ),
           const SizedBox(height: 14),
-          // 2-column square album/mix grid matching Screenshot 3
           if (gridItems.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
@@ -1032,27 +1061,19 @@ class _TidalAppShellState extends State<TidalAppShell> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  gridItems[i].album.isNotEmpty &&
-                                          gridItems[i].album != 'YouTube Music'
-                                      ? gridItems[i].album
-                                      : gridItems[i].title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ),
-                              
-                            ],
+                          Text(
+                            gridItems[i].album.isNotEmpty &&
+                                    gridItems[i].album != 'YouTube Music'
+                                ? gridItems[i].album
+                                : gridItems[i].title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              height: 1.25,
+                            ),
                           ),
                           const SizedBox(height: 3),
                           Text(
@@ -1071,7 +1092,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
               ],
             ),
           const SizedBox(height: 22),
-          // AI DJ integration on Tidal Home
           if (appState.b('ai_home_on', true))
             AiDjHomeCard(
               surface: kTidalSurface,
@@ -1082,7 +1102,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
               onStop: () => stopAiDjSession(),
             ),
           const SizedBox(height: 22),
-          // "Suggested new albums for you"
           Row(
             children: [
               const Expanded(
@@ -1161,7 +1180,7 @@ class _TidalAppShellState extends State<TidalAppShell> {
     );
   }
 
-  // ── TAB 1: TIDAL UPDATES (Screenshot 4) ──────────────────────────────────
+  // ── TAB 1: UPDATES ───────────────────────────────────────────────────────
   Widget _buildUpdatesTab() {
     return SafeArea(
       bottom: false,
@@ -1209,7 +1228,7 @@ class _TidalAppShellState extends State<TidalAppShell> {
     );
   }
 
-  // ── TAB 2: TIDAL EXPLORE (Screenshots 5 & 6) ─────────────────────────────
+  // ── TAB 2: EXPLORE ───────────────────────────────────────────────────────
   Widget _buildExploreTab() {
     final all = widget.tracks;
     final spotlight = all.isNotEmpty ? all.first : null;
@@ -1224,14 +1243,19 @@ class _TidalAppShellState extends State<TidalAppShell> {
       'Latin',
     ];
 
+    void openTidalSearch([String? q]) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => TidalSearchScreen(initialQuery: q),
+      ));
+    }
+
     return SafeArea(
       bottom: false,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 165),
         children: [
-          // White rectangular Search box with sharp 6px radius (Screenshot 5)
           GestureDetector(
-            onTap: () => showSearchSheet(context),
+            onTap: () => openTidalSearch(),
             child: Container(
               height: 48,
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1265,7 +1289,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
             ),
           ),
           const SizedBox(height: 16),
-          // Featured editorial spotlight card
           if (spotlight != null)
             GestureDetector(
               onTap: () => _playList(all, 0),
@@ -1316,16 +1339,12 @@ class _TidalAppShellState extends State<TidalAppShell> {
                   const SizedBox(height: 2),
                   Text(
                     spotlight.title,
-                    style: const TextStyle(
-                      color: kTidalText2,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: kTidalText2, fontSize: 14),
                   ),
                 ],
               ),
             ),
           const SizedBox(height: 24),
-          // Genres header + "VIEW AS LIST" pill
           Row(
             children: [
               const Expanded(
@@ -1372,7 +1391,7 @@ class _TidalAppShellState extends State<TidalAppShell> {
                             color: Colors.white, fontWeight: FontWeight.w700)),
                     trailing: const Icon(Icons.chevron_right_rounded,
                         color: kTidalText2),
-                    onTap: () => showSearchSheet(context, query: g),
+                    onTap: () => openTidalSearch(g),
                   ),
               ],
             )
@@ -1385,7 +1404,7 @@ class _TidalAppShellState extends State<TidalAppShell> {
                     Padding(
                       padding: const EdgeInsets.only(right: 10),
                       child: GestureDetector(
-                        onTap: () => showSearchSheet(context, query: g),
+                        onTap: () => openTidalSearch(g),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 18, vertical: 13),
@@ -1412,7 +1431,7 @@ class _TidalAppShellState extends State<TidalAppShell> {
     );
   }
 
-  // ── TAB 4: TIDAL COLLECTION (Screenshot 7) ───────────────────────────────
+  // ── TAB 3: COLLECTION / LIBRARY (|||) ────────────────────────────────────
   Widget _buildCollectionTab() {
     final all = widget.tracks;
     final recent = <TrackItem>[];
@@ -1453,7 +1472,6 @@ class _TidalAppShellState extends State<TidalAppShell> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 12, 16, 165),
         children: [
-          // Header: "Collection" + Stats, Settings, Profile circle
           Row(
             children: [
               const Expanded(
@@ -1494,17 +1512,14 @@ class _TidalAppShellState extends State<TidalAppShell> {
             startOrStepAiDj(openInPlayer: context);
           }),
           rowItem(Icons.queue_music_rounded, 'Playlists', () {
-            if (appState.playlists.isNotEmpty) {
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) =>
-                    PlaylistDetailScreen(playlistId: appState.playlists.first.id),
-              ));
-            } else {
-              showCreateOrEditPlaylistDialog(context);
-            }
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TidalPlaylistsScreen(),
+            ));
           }),
           rowItem(Icons.album_outlined, 'Albums', () {
-            showSearchSheet(context);
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TidalSearchScreen(),
+            ));
           }),
           rowItem(Icons.pause_rounded, 'Purchases', () {
             Navigator.of(context).push(
@@ -1512,16 +1527,14 @@ class _TidalAppShellState extends State<TidalAppShell> {
             );
           }),
           rowItem(Icons.music_note_outlined, 'Tracks', () {
-            if (ytAccount.value.signedIn) {
-              openYtLikedMusic(context);
-            } else {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
-              );
-            }
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LikedSongsScreen()),
+            );
           }),
           rowItem(Icons.play_arrow_outlined, 'Videos', () {
-            showSearchSheet(context);
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TidalSearchScreen(),
+            ));
           }),
           rowItem(Icons.mic_none_rounded, 'Artists', () {
             if (all.isNotEmpty) goToArtist(context, all.first);
@@ -1568,7 +1581,1305 @@ class _TidalAppShellState extends State<TidalAppShell> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TIDAL ARTIST PAGE (Screenshot 2)
+// EXCLUSIVE TIDAL SEARCH SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TidalSearchScreen extends StatefulWidget {
+  final String? initialQuery;
+  const TidalSearchScreen({super.key, this.initialQuery});
+
+  @override
+  State<TidalSearchScreen> createState() => _TidalSearchScreenState();
+}
+
+class _TidalSearchScreenState extends State<TidalSearchScreen> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initialQuery ?? '');
+  Timer? _debounce;
+  String _filter = 'Top results';
+  bool _loading = false;
+  List<TrackItem> _tracks = [];
+  List<YtAlbum> _albums = [];
+  List<YtArtist> _artists = [];
+  List<YtPlaylistRef> _playlists = [];
+
+  static const _filters = [
+    'Top results',
+    'Tracks',
+    'Playlists',
+    'Albums',
+    'Artists',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (_ctrl.text.trim().isNotEmpty) {
+      _runSearch(_ctrl.text.trim());
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String val) {
+    setState(() {});
+    _debounce?.cancel();
+    final q = val.trim();
+    if (q.isEmpty) {
+      _runSearch('');
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 420), () {
+      _runSearch(q);
+    });
+  }
+
+  Future<void> _runSearch(String q) async {
+    if (q.isEmpty) {
+      setState(() {
+        _tracks = [];
+        _albums = [];
+        _artists = [];
+        _playlists = [];
+        _loading = false;
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final local = audioHandler.tracks
+          .where((t) =>
+              t.title.toLowerCase().contains(q.toLowerCase()) ||
+              t.artist.toLowerCase().contains(q.toLowerCase()))
+          .toList();
+      final results = await Future.wait([
+        YouTubeMusic.search(q).catchError((_) => const <TrackItem>[]),
+        YouTubeMusic.searchAlbums(q).catchError((_) => const <YtAlbum>[]),
+        YouTubeMusic.searchArtists(q).catchError((_) => const <YtArtist>[]),
+        YouTubeMusic.searchPlaylists(q)
+            .catchError((_) => const <YtPlaylistRef>[]),
+      ]);
+      if (!mounted) return;
+      final ytTracks = results[0] as List<TrackItem>;
+      final merged = <TrackItem>[...local];
+      final seen = <String>{for (final t in local) t.id};
+      for (final t in ytTracks) {
+        if (seen.add(t.id)) merged.add(t);
+      }
+      setState(() {
+        _tracks = merged;
+        _albums = results[1] as List<YtAlbum>;
+        _artists = results[2] as List<YtArtist>;
+        _playlists = results[3] as List<YtPlaylistRef>;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kTidalBg,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 10, 14, 12),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.arrow_back_rounded,
+                            color: Colors.white, size: 24),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.search_rounded,
+                                  color: Colors.black87, size: 22),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _ctrl,
+                                  autofocus: widget.initialQuery == null,
+                                  textInputAction: TextInputAction.search,
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Search',
+                                    hintStyle: TextStyle(color: Colors.black45),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                  onSubmitted: (v) => _runSearch(v.trim()),
+                                  onChanged: _onChanged,
+                                ),
+                              ),
+                              if (_ctrl.text.isNotEmpty)
+                                GestureDetector(
+                                  onTap: () {
+                                    _ctrl.clear();
+                                    _runSearch('');
+                                  },
+                                  child: const Icon(Icons.close_rounded,
+                                      color: Colors.black87, size: 21),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 38,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    itemCount: _filters.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) {
+                      final f = _filters[i];
+                      final on = _filter == f;
+                      return GestureDetector(
+                        onTap: () => setState(() => _filter = f),
+                        child: Container(
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: on ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            f,
+                            style: TextStyle(
+                              color: on ? Colors.black : Colors.white70,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(color: Colors.white))
+                      : _buildResultsList(),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: TidalUnifiedDock(
+              selectedTab: 2,
+              onSelectTab: (i) => tidalNavigateToTab(context, i),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultsList() {
+    final items = <Widget>[];
+
+    Widget trackTile(TrackItem t, List<TrackItem> list, int idx) => InkWell(
+          onTap: () {
+            audioHandler.playYouTubeList(list, idx);
+            openPlayer(context);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    width: 52,
+                    height: 52,
+                    child: CustomAlbumArtwork(track: t),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        t.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Track by ${t.artist}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: kTidalText2, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => showYtAddToPlaylist(context, t),
+                  icon: const Icon(Icons.more_vert_rounded,
+                      color: kTidalText2, size: 20),
+                ),
+              ],
+            ),
+          ),
+        );
+
+    Widget albumTile(YtAlbum a) => InkWell(
+          onTap: () => openYtAlbum(context, a),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: YtNetworkImage(url: a.thumbnail, size: 52),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        a.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Album by ${a.artist}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: kTidalText2, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.more_vert_rounded,
+                    color: kTidalText2, size: 20),
+              ],
+            ),
+          ),
+        );
+
+    Widget artistTile(YtArtist a) => InkWell(
+          onTap: () =>
+              openYtArtist(context, a.url, a.name, thumbnail: a.thumbnail),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                YtNetworkImage(
+                  url: a.thumbnail,
+                  size: 52,
+                  circle: true,
+                  fallbackIcon: Icons.person_rounded,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        a.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      const Text('Artist',
+                          style: TextStyle(color: kTidalText2, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+    Widget playlistTile(YtPlaylistRef p) => InkWell(
+          onTap: () => openYtAccountPlaylist(context, p),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: YtNetworkImage(url: p.thumbnail, size: 52),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        p.subtitle.isEmpty ? 'Playlist' : p.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: kTidalText2, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+    if (_filter == 'Tracks') {
+      for (var i = 0; i < _tracks.length; i++) {
+        items.add(trackTile(_tracks[i], _tracks, i));
+      }
+    } else if (_filter == 'Albums') {
+      for (final a in _albums) items.add(albumTile(a));
+    } else if (_filter == 'Artists') {
+      for (final a in _artists) items.add(artistTile(a));
+    } else if (_filter == 'Playlists') {
+      for (final p in _playlists) items.add(playlistTile(p));
+    } else {
+      for (var i = 0; i < min(3, _tracks.length); i++) {
+        items.add(trackTile(_tracks[i], _tracks, i));
+      }
+      if (_albums.isNotEmpty) items.add(albumTile(_albums.first));
+      if (_artists.isNotEmpty) items.add(artistTile(_artists.first));
+      for (var i = 3; i < _tracks.length; i++) {
+        items.add(trackTile(_tracks[i], _tracks, i));
+      }
+    }
+
+    if (items.isEmpty) {
+      return const Center(
+        child: Text(
+          'Search for tracks, albums, artists, or playlists',
+          style: TextStyle(color: kTidalText2, fontSize: 14.5),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 165),
+      children: items,
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIDAL PLAYLISTS SCREEN (YouTube Music + Local Playlists)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TidalPlaylistsScreen extends StatefulWidget {
+  const TidalPlaylistsScreen({super.key});
+
+  @override
+  State<TidalPlaylistsScreen> createState() => _TidalPlaylistsScreenState();
+}
+
+class _TidalPlaylistsScreenState extends State<TidalPlaylistsScreen> {
+  late Future<List<YtPlaylistRef>> _ytFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _ytFuture = YouTubeMusic.libraryPlaylists().catchError(
+        (_) => YouTubeMusic.cachedLibrary() ?? const <YtPlaylistRef>[]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kTidalBg,
+      body: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 165),
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      alignment: Alignment.centerLeft,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.white, size: 24),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Playlists',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => showCreateOrEditPlaylistDialog(context),
+                      icon: const Icon(Icons.add_rounded,
+                          color: Colors.white, size: 26),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _plRow(
+                  cover: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.favorite_rounded,
+                        color: Color(0xFF22D3EE), size: 26),
+                  ),
+                  title: 'Liked on YouTube Music',
+                  subtitle: 'Auto playlist',
+                  onTap: () => openYtLikedMusic(context),
+                ),
+                for (final pl in appState.playlists)
+                  _plRow(
+                    cover: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: PlaylistCoverThumbnail(playlist: pl, size: 56),
+                    ),
+                    title: pl.name,
+                    subtitle: '${pl.trackIds.length} tracks · Local',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => PlaylistDetailScreen(playlistId: pl.id),
+                    )),
+                  ),
+                FutureBuilder<List<YtPlaylistRef>>(
+                  future: _ytFuture,
+                  initialData: YouTubeMusic.cachedLibrary(),
+                  builder: (context, snap) {
+                    final list = snap.data ?? const <YtPlaylistRef>[];
+                    if (list.isEmpty &&
+                        snap.connectionState != ConnectionState.done) {
+                      return const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(
+                            child:
+                                CircularProgressIndicator(color: Colors.white)),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        for (final p in list)
+                          _plRow(
+                            cover: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: YtNetworkImage(url: p.thumbnail, size: 56),
+                            ),
+                            title: p.title,
+                            subtitle: p.subtitle.isEmpty
+                                ? 'YouTube Music'
+                                : p.subtitle,
+                            onTap: () => openYtAccountPlaylist(context, p),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: TidalUnifiedDock(
+              selectedTab: 3,
+              onSelectTab: (i) => tidalNavigateToTab(context, i),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plRow({
+    required Widget cover,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            cover,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: kTidalText2, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: kTidalText2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIDAL ALBUM & YTM PLAYLIST VIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+Widget buildTidalAlbumView(
+  BuildContext context,
+  YtAlbum album,
+  AsyncSnapshot<YtAlbumPage> snap,
+  YtAlbumPage? cached, {
+  bool isPlaylist = false,
+}) {
+  final page = snap.data ?? cached;
+  final cover = page?.thumbnail ?? album.thumbnail;
+  final title = page?.title ?? album.title;
+  final artist =
+      (page?.artist.isNotEmpty ?? false) ? page!.artist : album.artist;
+  final tracks = page?.tracks ?? const <TrackItem>[];
+  final year = page?.year ?? '';
+  final secs = tracks.fold<int>(0, (a, t) => a + t.durationSeconds);
+  final h = secs ~/ 3600;
+  final m = (secs % 3600) ~/ 60;
+  final durText = h > 0 ? '$h HR $m MIN' : '$m MIN';
+
+  void playAt(int i, {bool shuffle = false}) {
+    if (tracks.isEmpty) return;
+    audioHandler.setShuffleMode(
+        shuffle ? AudioServiceShuffleMode.all : AudioServiceShuffleMode.none);
+    audioHandler.playYouTubeList(tracks, i, lockToScope: true);
+    openPlayer(context);
+  }
+
+  Widget actionBtn(IconData icon, String label, VoidCallback onTap,
+          {Color color = Colors.white}) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+
+  return Scaffold(
+    backgroundColor: kTidalBg,
+    body: Stack(
+      children: [
+        ListView(
+          padding: const EdgeInsets.only(bottom: 165),
+          children: [
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF443E37),
+                    Color(0xFF1C1917),
+                    kTidalBg,
+                  ],
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded,
+                                color: Colors.white, size: 24),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () {
+                              if (tracks.isNotEmpty) {
+                                audioHandler.addToQueue(tracks);
+                                appNotice.value = 'Added $title to queue';
+                              }
+                            },
+                            icon: const Icon(Icons.more_vert_rounded,
+                                color: Colors.white, size: 24),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.55),
+                              blurRadius: 26,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: YtNetworkImage(
+                              url: cover, size: isPlaylist ? 140 : 172),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        isPlaylist ? 'by $artist >' : 'Album by $artist >',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: kTidalText2,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (isPlaylist)
+                        Text(
+                          '${tracks.length} TRACKS ($durText)',
+                          style: const TextStyle(
+                            color: kTidalText2,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.7,
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (year.isNotEmpty) ...[
+                              Text(
+                                year,
+                                style: const TextStyle(
+                                  color: kTidalText2,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0E3A3B),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: const Text(
+                                'HIGH',
+                                style: TextStyle(
+                                  color: Color(0xFF2DD4BF),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => playAt(0),
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.play_arrow_rounded,
+                                color: Colors.black, size: 22),
+                            SizedBox(width: 6),
+                            Text(
+                              'Play',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => playAt(
+                        tracks.isEmpty ? 0 : Random().nextInt(tracks.length),
+                        shuffle: true,
+                      ),
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: kTidalSurface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.shuffle_rounded,
+                                color: Colors.white, size: 20),
+                            SizedBox(width: 6),
+                            Text(
+                              'Shuffle',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  actionBtn(Icons.favorite_border_rounded, 'Add', () {
+                    if (tracks.isNotEmpty) {
+                      appState.toggleLike(tracks.first.id);
+                      appNotice.value = 'Saved $title';
+                    }
+                  }),
+                  actionBtn(Icons.info_outline_rounded, 'Credits', () {
+                    showAiSongInfo(
+                      context,
+                      title: title,
+                      artist: artist,
+                      onPlay: (_) {},
+                    );
+                  }),
+                  actionBtn(Icons.arrow_circle_down_outlined, 'Download', () {
+                    openDownloads(context);
+                  }),
+                  actionBtn(Icons.share_outlined, 'Share', () {
+                    if (tracks.isNotEmpty) shareTrack(tracks.first);
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (tracks.isEmpty && snap.connectionState != ConnectionState.done)
+              const Padding(
+                padding: EdgeInsets.all(28),
+                child: Center(
+                    child: CircularProgressIndicator(color: Colors.white)),
+              )
+            else
+              for (var i = 0; i < tracks.length; i++)
+                InkWell(
+                  onTap: () => playAt(i),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 9),
+                    child: Row(
+                      children: [
+                        if (isPlaylist) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(5),
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: CustomAlbumArtwork(track: tracks[i]),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                        ] else
+                          SizedBox(
+                            width: 28,
+                            child: Text(
+                              '${i + 1}',
+                              style: const TextStyle(
+                                color: kTidalText2,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                tracks[i].title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: audioHandler.currentTrack?.id ==
+                                          tracks[i].id
+                                      ? const Color(0xFF2DD4BF)
+                                      : Colors.white,
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                tracks[i].artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: kTidalText2, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              showYtAddToPlaylist(context, tracks[i]),
+                          icon: const Icon(Icons.more_vert_rounded,
+                              color: kTidalText2, size: 20),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            if (!isPlaylist && year.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+                child: Text(
+                  'Release date: $year\n$artist',
+                  style: const TextStyle(
+                    color: kTidalText2,
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: TidalUnifiedDock(
+            selectedTab: isPlaylist ? 3 : 0,
+            onSelectTab: (i) => tidalNavigateToTab(context, i),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIDAL LOCAL PLAYLIST VIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+Widget buildTidalPlaylistView(
+  BuildContext context,
+  Playlist pl,
+  List<TrackItem> tracks,
+  void Function(int i) playFrom,
+) {
+  final secs = tracks.fold<int>(0, (a, t) => a + t.durationSeconds);
+  final h = secs ~/ 3600;
+  final m = (secs % 3600) ~/ 60;
+  final durText = h > 0 ? '$h HR $m MIN' : '$m MIN';
+
+  Widget actionBtn(IconData icon, String label, VoidCallback onTap,
+          {Color color = Colors.white}) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+
+  return Scaffold(
+    backgroundColor: kTidalBg,
+    body: Stack(
+      children: [
+        ListView(
+          padding: const EdgeInsets.only(bottom: 165),
+          children: [
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF5A5550), Color(0xFF262321), kTidalBg],
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded,
+                                color: Colors.white, size: 24),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const TidalSearchScreen(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.search_rounded,
+                                color: Colors.white, size: 23),
+                          ),
+                          IconButton(
+                            onPressed: () => showCreateOrEditPlaylistDialog(
+                                context,
+                                existing: pl),
+                            icon: const Icon(Icons.more_vert_rounded,
+                                color: Colors.white, size: 23),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: PlaylistCoverThumbnail(playlist: pl, size: 130),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        pl.name,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'by you >',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '${tracks.length} TRACKS ($durText)',
+                        style: const TextStyle(
+                          color: kTidalText2,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.7,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (tracks.isNotEmpty) {
+                          audioHandler
+                              .setShuffleMode(AudioServiceShuffleMode.none);
+                          playFrom(0);
+                        }
+                      },
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.play_arrow_rounded,
+                                color: Colors.black, size: 22),
+                            SizedBox(width: 6),
+                            Text(
+                              'Play',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (tracks.isNotEmpty) {
+                          audioHandler
+                              .setShuffleMode(AudioServiceShuffleMode.all);
+                          playFrom(Random().nextInt(tracks.length));
+                        }
+                      },
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: kTidalSurface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.shuffle_rounded,
+                                color: Colors.white, size: 20),
+                            SizedBox(width: 6),
+                            Text(
+                              'Shuffle',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  actionBtn(Icons.edit_outlined, 'Edit playlist', () {
+                    showCreateOrEditPlaylistDialog(context, existing: pl);
+                  }),
+                  actionBtn(Icons.arrow_circle_down_outlined, 'Download', () {
+                    openDownloads(context);
+                  }),
+                  actionBtn(Icons.lock_open_rounded, 'Public', () {},
+                      color: const Color(0xFF2DD4BF)),
+                  actionBtn(Icons.share_outlined, 'Share', () {
+                    if (tracks.isNotEmpty) shareTrack(tracks.first);
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (var i = 0; i < tracks.length; i++)
+              InkWell(
+                onTap: () => playFrom(i),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: CustomAlbumArtwork(track: tracks[i]),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tracks[i].title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: audioHandler.currentTrack?.id ==
+                                        tracks[i].id
+                                    ? const Color(0xFF2DD4BF)
+                                    : Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              tracks[i].artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: kTidalText2, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () =>
+                            showAddToPlaylistSheet(context, tracks[i]),
+                        icon: const Icon(Icons.more_vert_rounded,
+                            color: kTidalText2, size: 20),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: TidalUnifiedDock(
+            selectedTab: 3,
+            onSelectTab: (i) => tidalNavigateToTab(context, i),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIDAL ARTIST PAGE
 // ═══════════════════════════════════════════════════════════════════════════
 
 Widget buildTidalArtistView(
@@ -1639,7 +2950,6 @@ Widget buildTidalArtistView(
                 ),
               ),
               const SizedBox(height: 18),
-              // Row of 3 circular buttons: solid white Play, dark '+', dark Share
               Row(
                 children: [
                   GestureDetector(
@@ -1695,7 +3005,6 @@ Widget buildTidalArtistView(
                 ],
               ),
               const SizedBox(height: 22),
-              // "All" / "Music" tab bar with white underline under "All"
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1737,7 +3046,6 @@ Widget buildTidalArtistView(
                 ],
               ),
               const SizedBox(height: 20),
-              // "Top Tracks" + "View all"
               Row(
                 children: [
                   const Expanded(
@@ -1791,22 +3099,15 @@ Widget buildTidalArtistView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        songs[i].title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15.5,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                    
-                                  ],
+                                Text(
+                                  songs[i].title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
@@ -1840,7 +3141,7 @@ Widget buildTidalArtistView(
           bottom: 0,
           child: TidalUnifiedDock(
             selectedTab: 0,
-            onSelectTab: (_) => Navigator.of(context).pop(),
+            onSelectTab: (i) => tidalNavigateToTab(context, i),
           ),
         ),
       ],
