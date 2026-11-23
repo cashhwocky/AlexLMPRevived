@@ -34181,7 +34181,7 @@ class _YtArtistScreenState extends State<YtArtistScreen> {
           final name = page?.name ?? widget.name;
           final banner = page?.banner ?? page?.thumbnail ?? widget.thumbnail;
           final screenW = MediaQuery.of(context).size.width;
-          if (tidalLook) return _tidalArtist(context, page, snap);
+          if (tidalLook) return buildTidalArtistView(context, widget.name, page, snap, _play);
           if (bloomLook) return _bloomArtist(context, page, snap);
 
           final slivers = <Widget>[

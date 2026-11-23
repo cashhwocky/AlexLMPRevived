@@ -1747,11 +1747,7 @@ Widget buildTidalArtistView(
                     ),
                   ),
                   GestureDetector(
-                    onTap: () => openArtistAll(context, name,
-                        albums: false,
-                        browseId: page?.songsBrowseId,
-                        params: page?.songsParams,
-                        heading: 'Top Tracks'),
+                    onTap: () => openArtistAll(context, name, albums: false),
                     child: const Text(
                       'View all',
                       style: TextStyle(
