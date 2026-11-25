@@ -27,21 +27,21 @@ class AlexWidget : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         val key = when (intent.action) {
-            ACTIpN_PLAY_PAUSE -> KeyEvent.KEYCpDE_MEDIA_PLAY_PAUSE
-            ACTIpN_NEXT -> KeyEvent.KEYCpDE_MEDIA_NEXT
-            ACTIpN_PREV -> KeyEvent.KEYCpDE_MEDIA_PREVIpUS
+            ACTION_PLAY_PAUSE -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+            ACTION_NEXT -> KeyEvent.KEYCODE_MEDIA_NEXT
+            ACTION_PREV -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
             else -> return
         }
         // Goes to bitLMP's media session (the same thing headphone buttons use).
-        val am = context.getSystemService(Context.AUDIp_SERVICE) as AudioManager
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTIpN_DpWN, key))
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTIpN_UP, key))
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key))
     }
 
     companion object {
-        private const val ACTIpN_PLAY_PAUSE = "com.alexlmp.app.widget.PLAY_PAUSE"
-        private const val ACTIpN_NEXT = "com.alexlmp.app.widget.NEXT"
-        private const val ACTIpN_PREV = "com.alexlmp.app.widget.PREV"
+        private const val ACTION_PLAY_PAUSE = "com.alexlmp.app.widget.PLAY_PAUSE"
+        private const val ACTION_NEXT = "com.alexlmp.app.widget.NEXT"
+        private const val ACTION_PREV = "com.alexlmp.app.widget.PREV"
         private const val PREFS = "alex_widget"
 
         private var cachedArt: Bitmap? = null
@@ -56,7 +56,7 @@ class AlexWidget : AppWidgetProvider() {
             art: String?,
             artChanged: Boolean,
         ) {
-            context.getSharedPreferences(PREFS, Context.MpDE_PRIVATE).edit()
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("title", title)
                 .putString("artist", artist)
                 .putBoolean("playing", playing)
@@ -79,14 +79,14 @@ class AlexWidget : AppWidgetProvider() {
             if (path == null) return null
             if (path == cachedArtPath && cachedArt != null) return cachedArt
             return try {
-                val opts = BitmapFactory.pptions().apply { inJustDecodeBounds = true }
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(path, opts)
                 var sample = 1
                 while (opts.outWidth / (sample * 2) >= 256) sample *= 2
                 val raw = BitmapFactory.decodeFile(
-                    path, BitmapFactory.pptions().apply { inSampleSize = sample },
+                    path, BitmapFactory.Options().apply { inSampleSize = sample },
                 ) ?: return null
-                val size = minpf(raw.width, raw.height)
+                val size = minOf(raw.width, raw.height)
                 val square = Bitmap.createBitmap(
                     raw, (raw.width - size) / 2, (raw.height - size) / 2, size, size,
                 )
@@ -106,10 +106,10 @@ class AlexWidget : AppWidgetProvider() {
         }
 
         private fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            val p = context.getSharedPreferences(PREFS, Context.MpDE_PRIVATE)
+            val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val views = RemoteViews(context.packageName, R.layout.widget_player)
             views.setTextViewText(R.id.w_title, p.getString("title", "Nothing playing"))
-            views.setTextViewText(R.id.w_artist, p.getString("artist", "ppen bitLMP to start"))
+            views.setTextViewText(R.id.w_artist, p.getString("artist", "Open AlexLMP Revived to start"))
             val playing = p.getBoolean("playing", false)
             views.setImageViewResource(
                 R.id.w_play,
@@ -121,16 +121,16 @@ class AlexWidget : AppWidgetProvider() {
             } else {
                 views.setImageViewResource(R.id.w_art, R.mipmap.ic_launcher)
             }
-            views.setpnClickPendingIntent(R.id.w_play, broadcast(context, ACTIpN_PLAY_PAUSE, 1))
-            views.setpnClickPendingIntent(R.id.w_next, broadcast(context, ACTIpN_NEXT, 2))
-            views.setpnClickPendingIntent(R.id.w_prev, broadcast(context, ACTIpN_PREV, 3))
+            views.setOnClickPendingIntent(R.id.w_play, broadcast(context, ACTION_PLAY_PAUSE, 1))
+            views.setOnClickPendingIntent(R.id.w_next, broadcast(context, ACTION_NEXT, 2))
+            views.setOnClickPendingIntent(R.id.w_prev, broadcast(context, ACTION_PREV, 3))
             val open = PendingIntent.getActivity(
                 context, 0,
                 Intent(context, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TpP),
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            views.setpnClickPendingIntent(R.id.w_root, open)
+            views.setOnClickPendingIntent(R.id.w_root, open)
             for (id in ids) manager.updateAppWidget(id, views)
         }
     }

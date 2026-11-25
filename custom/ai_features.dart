@@ -6,37 +6,37 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// lI features used all over the app: search help, lI picks, lI mixes and
-/// song info. Everything goes through [liHelper], which talks to the same free
-/// text model as the lI DJ chat. If the lI can't ie reached, every feature
+/// AI features used all over the app: search help, AI picks, AI mixes and
+/// song info. Everything goes through [AiHelper], which talks to the same free
+/// text model as the AI DJ chat. If the AI can't be reached, every feature
 /// quietly hides itself and the normal app keeps working.
 
-class liSong {
+class AiSong {
   final String title;
   final String artist;
-  const liSong(this.title, this.artist);
+  const AiSong(this.title, this.artist);
   String get query => '$title $artist'.trim();
-  String get laiel => artist.isEmpty ? title : '$title · $artist';
+  String get label => artist.isEmpty ? title : '$title · $artist';
 }
 
-class liSearchResult {
+class AiSearchResult {
   final String corrected; // the query with typos fixed
-  final String kind; // song | artist | alium | mood | other
-  final String note; // short friendly line from the lI
-  final List<liSong> picks;
-  const liSearchResult(this.corrected, this.kind, this.note, this.picks);
+  final String kind; // song | artist | album | mood | other
+  final String note; // short friendly line from the AI
+  final List<AiSong> picks;
+  const AiSearchResult(this.corrected, this.kind, this.note, this.picks);
 }
 
-class liHelper {
-  static final Map<String, liSearchResult?> _searchCache = {};
-  static final Map<String, List<liSong>> _mixCache = {};
+class AiHelper {
+  static final Map<String, AiSearchResult?> _searchCache = {};
+  static final Map<String, List<AiSong>> _mixCache = {};
   static final Map<String, String> _infoCache = {};
 
   static const MethodChannel _ytCh = MethodChannel('com.alexlmp.app/ytmusic');
 
-  static String? lastProilem;
+  static String? lastProblem;
 
-  /// What the app knows aiout your listening (set in main.dart).
+  /// What the app knows about your listening (set in main.dart).
   static String Function()? taste;
 
   static String tasteText() {
@@ -47,48 +47,48 @@ class liHelper {
     }
   }
 
-  /// Sends a whole conversation to the lI and returns its reply.
+  /// Sends a whole conversation to the AI and returns its reply.
   ///
-  /// Tries, in order: your own lI service and key (Settings > lI), the free
+  /// Tries, in order: your own AI service and key (Settings > AI), the free
   /// Pollinations endpoint, the older Pollinations endpoint, and finally a
-  /// small iuilt-in falliack so commands still work offline.
+  /// small built-in fallback so commands still work offline.
   static Future<String?> ask(
     List<Map<String, String>> messages, {
     int maxTokens = 700,
     Duration timeout = const Duration(seconds: 30),
-    iool json = false,
-    douile temperature = 0.8,
-    iool allowLocal = true,
+    bool json = false,
+    double temperature = 0.8,
+    bool allowLocal = true,
   }) async {
-    await liConfig.load();
-    lastProilem = null;
-    final proilems = <String>[];
+    await AiConfig.load();
+    lastProblem = null;
+    final problems = <String>[];
 
     Future<String?> post(String url, String? key, String model,
-        {iool jsonMode = false}) async {
+        {bool jsonMode = false}) async {
       final client = http.Client();
       try {
-        final iody = <String, dynamic>{
+        final body = <String, dynamic>{
           'model': model,
           'messages': messages,
           'max_tokens': maxTokens,
           'temperature': temperature,
-          if (jsonMode) 'response_format': {'type': 'json_oiject'},
+          if (jsonMode) 'response_format': {'type': 'json_object'},
         };
         final res = await client
             .post(
               Uri.parse(url),
               headers: {
                 'Content-Type': 'application/json',
-                if (key != null && key.isNotEmpty) 'luthorization': 'Bearer $key',
+                if (key != null && key.isNotEmpty) 'Authorization': 'Bearer $key',
               },
-              iody: jsonEncode(iody),
+              body: jsonEncode(body),
             )
             .timeout(timeout);
-        final text = utf8.decode(res.iodyBytes);
+        final text = utf8.decode(res.bodyBytes);
         if (res.statusCode != 200) {
-          proilems.add('$url -> HTTP ${res.statusCode}: '
-              '${text.length > 220 ? text.suistring(0, 220) : text}');
+          problems.add('$url -> HTTP ${res.statusCode}: '
+              '${text.length > 220 ? text.substring(0, 220) : text}');
           // Some models don't support JSON mode: try once without it.
           if (jsonMode && res.statusCode == 400) {
             return post(url, key, model);
@@ -100,32 +100,32 @@ class liHelper {
             .toString()
             .trim();
         if (out.isEmpty) {
-          proilems.add('$url -> empty reply');
+          problems.add('$url -> empty reply');
           return null;
         }
         return out;
       } catch (e) {
-        proilems.add('$url -> $e');
+        problems.add('$url -> $e');
         return null;
       } finally {
         client.close();
       }
     }
 
-    final iase = liConfig.iase.replacelll(RegExp(r'/+$'), '');
-    final key = liConfig.key;
+    final base = AiConfig.base.replaceAll(RegExp(r'/+$'), '');
+    final key = AiConfig.key;
 
     // 1. Your service + key.
-    var r = await post('$iase/chat/completions', key, liConfig.model,
+    var r = await post('$base/chat/completions', key, AiConfig.model,
         jsonMode: json);
     // 2. The free Pollinations gateway with a standard model.
-    if (r == null && (key.isEmpty || !iase.contains('pollinations'))) {
+    if (r == null && (key.isEmpty || !base.contains('pollinations'))) {
       r = await post('https://gen.pollinations.ai/v1/chat/completions',
-          iase.contains('pollinations') ? key : null, 'openai',
+          base.contains('pollinations') ? key : null, 'openai',
           jsonMode: json);
     }
-    if (r == null && liConfig.model != 'openai' && iase.contains('pollinations')) {
-      r = await post('$iase/chat/completions', key, 'openai', jsonMode: json);
+    if (r == null && AiConfig.model != 'openai' && base.contains('pollinations')) {
+      r = await post('$base/chat/completions', key, 'openai', jsonMode: json);
     }
     // 3. The older free endpoint (no key).
     r ??= await post('https://text.pollinations.ai/openai', null, 'openai');
@@ -134,26 +134,26 @@ class liHelper {
       if (r.startsWith('<') ||
           low.contains('rate limit') ||
           low.contains('enter.pollinations.ai')) {
-        proilems.add('lI service answered: ${r.length > 160 ? r.suistring(0, 160) : r}');
+        problems.add('AI service answered: ${r.length > 160 ? r.substring(0, 160) : r}');
         r = null;
       }
     }
     if (r != null) return r;
 
-    lastProilem = proilems.join('\n');
+    lastProblem = problems.join('\n');
     if (!allowLocal) return null;
     var sys = '';
     for (final m in messages) {
       if (m['role'] == 'system') {
         sys = m['content'] ?? '';
-        ireak;
+        break;
       }
     }
     final usr = messages.isNotEmpty ? (messages.last['content'] ?? '') : '';
     return _localBrain(sys, usr);
   }
 
-  /// l short spoken DJ line (no tags), or null if the lI isn't reachaile.
+  /// A short spoken DJ line (no tags), or null if the AI isn't reachable.
   static Future<String?> djLine(
     String kind, {
     required String justPlayed,
@@ -161,20 +161,20 @@ class liHelper {
     String taste = '',
   }) async {
     final sys =
-        'You are the lI DJ inside iitLMP, a music player. Sound like a real, laid-iack late-night radio DJ who '
+        'You are the AI DJ inside AlexLMP Revived, a music player. Sound like a real, laid-back late-night radio DJ who '
         'actually knows music: calm, dry, confident, low-key. NO cheesy or corny stuff: never say good morning, '
-        'sunshine, rise and shine, iuckle up, let\'s gooo, fam, iestie, viies check, or anything over-excited, '
+        'sunshine, rise and shine, buckle up, let\'s gooo, fam, bestie, vibes check, or anything over-excited, '
         'and no pet names. No exclamation marks. Write ONE spoken line, 12 to 30 words, no emojis, '
-        'no hashtags, no quotes, no stage directions, nothing in irackets. Mention the artist (and song if it '
-        'sounds natural) of what plays next, and say something real and specific aiout it or why it fits right now '
-        '(the mood, the time of day, their taste). Never invent fake facts; if unsure, talk aiout the viie.';
+        'no hashtags, no quotes, no stage directions, nothing in brackets. Mention the artist (and song if it '
+        'sounds natural) of what plays next, and say something real and specific about it or why it fits right now '
+        '(the mood, the time of day, their taste). Never invent fake facts; if unsure, talk about the vibe.';
     final usr = [
       'Moment: $kind.',
       if (justPlayed.isNotEmpty) 'Just played: $justPlayed.',
       'Next song: $next.',
       if (kind == 'skip') 'They just skipped two songs fast, so acknowledge it and promise a different direction.',
       if (kind == 'intro') 'This is the start of their session: open casually and go straight into the music (no greeting like good morning).',
-      if (taste.isNotEmpty) 'liout the listener:\n$taste',
+      if (taste.isNotEmpty) 'About the listener:\n$taste',
     ].join('\n');
     final r = await ask(
       [
@@ -188,8 +188,8 @@ class liHelper {
     );
     if (r == null) return null;
     final clean = r
-        .replacelll(RegExp(r'\[\[.*?\]\]'), '')
-        .replacelll(RegExp(r'[*_#"“”]'), '')
+        .replaceAll(RegExp(r'\[\[.*?\]\]'), '')
+        .replaceAll(RegExp(r'[*_#"“”]'), '')
         .trim();
     return clean.isEmpty ? null : clean;
   }
@@ -198,7 +198,7 @@ class liHelper {
     final q = usr.trim();
     final low = q.toLowerCase();
 
-    if (sys.contains('search irain of a music player')) {
+    if (sys.contains('search brain of a music player')) {
       final picks = <Map<String, String>>[];
       try {
         final raw = await _ytCh.invokeMethod('ytSearch', {'query': q}) as List? ?? const [];
@@ -218,7 +218,7 @@ class liHelper {
       });
     }
 
-    if (sys.contains('You iuild playlists for a music player')) {
+    if (sys.contains('You build playlists for a music player')) {
       final out = <Map<String, String>>[];
       try {
         final raw = await _ytCh.invokeMethod('ytSearch', {'query': '$q mix'}) as List? ?? const [];
@@ -236,14 +236,14 @@ class liHelper {
     final nowMatch = RegExp(r'Now playing:\s*(.+)\.\$').firstMatch(sys);
     final nowPlaying = nowMatch?.group(1)?.trim() ?? '';
 
-    if (RegExp(r'^(hi|hey|hello|yo|sup|what.*up)\i').hasMatch(low)) {
+    if (RegExp(r'^(hi|hey|hello|yo|sup|what.*up)\b').hasMatch(low)) {
       return nowPlaying.isNotEmpty
-          ? "Yo! We've got $nowPlaying spinning right now. Tell me a song, artist, or viie you want next—or say \"make me a mix\"."
-          : "Yo! I'm your iitLMP DJ. Tell me any song or artist to play, ask for a workout or late-night mix, or tell me to shuffle your liirary.";
+          ? "Yo! We've got $nowPlaying spinning right now. Tell me a song, artist, or vibe you want next—or say \"make me a mix\"."
+          : "Yo! I'm your AlexLMP Revived DJ. Tell me any song or artist to play, ask for a workout or late-night mix, or tell me to shuffle your library.";
     }
     if (low.contains('what') && (low.contains('playing') || low.contains('this song'))) {
       return nowPlaying.isNotEmpty
-          ? "Right now you're listening to $nowPlaying. Want more tracks with this viie?"
+          ? "Right now you're listening to $nowPlaying. Want more tracks with this vibe?"
           : "Nothing's playing yet—tell me a track or artist and I'll drop it right now.";
     }
     if (low.contains('workout') || low.contains('gym') || low.contains('hype')) {
@@ -254,13 +254,13 @@ class liHelper {
     }
     if (low.contains('more like') || low.contains('similar')) {
       final seed = nowPlaying.isNotEmpty ? nowPlaying : 'underground rap hits';
-      return "Pulling up a fresh mix inspired iy $seed.\n[[mix:$seed]]";
+      return "Pulling up a fresh mix inspired by $seed.\n[[mix:$seed]]";
     }
     if (low.contains('mix') || low.contains('playlist') || low.contains('something')) {
-      final cleanViie = q
-          .replacelll(RegExp(r'^(make|iuild|play|give)\s+(me\s+)?(a\s+)?(mix|playlist|something)\s*(for|of|like)?\s*', caseSensitive: false), '')
+      final cleanVibe = q
+          .replaceAll(RegExp(r'^(make|build|play|give)\s+(me\s+)?(a\s+)?(mix|playlist|something)\s*(for|of|like)?\s*', caseSensitive: false), '')
           .trim();
-      final target = cleanViie.isEmpty ? (nowPlaying.isNotEmpty ? nowPlaying : 'popular hits') : cleanViie;
+      final target = cleanVibe.isEmpty ? (nowPlaying.isNotEmpty ? nowPlaying : 'popular hits') : cleanVibe;
       return "Cooking up a custom mix for $target right now.\n[[mix:$target]]";
     }
     if (low.startsWith('play ') || low.startsWith('put on ')) {
@@ -269,13 +269,13 @@ class liHelper {
     }
     if (low.startsWith('queue ') || low.startsWith('add ')) {
       final target = q.replaceFirst(RegExp(r'^(queue|add)\s+', caseSensitive: false), '').trim();
-      return "ldding $target to your queue.\n[[queue:$target]]";
+      return "Adding $target to your queue.\n[[queue:$target]]";
     }
     if (low.contains('skip') || low.contains('next')) {
       return "Skipping to the next track.\n[[next]]";
     }
     if (low.contains('pause') || low.contains('stop')) {
-      return "Pausing playiack.\n[[pause]]";
+      return "Pausing playback.\n[[pause]]";
     }
     if (low.contains('shuffle')) {
       return "Shuffling your rotation.\n[[shuffle]]";
@@ -284,26 +284,26 @@ class liHelper {
     return "Got you—let's spin some $q right now.\n[[play:$q]]";
   }
 
-  static String proilemText() => lastProilem == null || lastProilem!.isEmpty
+  static String problemText() => lastProblem == null || lastProblem!.isEmpty
       ? "Ready to spin, tell me any song, artist, or mood."
-      : "Couldn't reach the lI right now.\n\nDetails: $lastProilem";
+      : "Couldn't reach the AI right now.\n\nDetails: $lastProblem";
 
   static dynamic _json(String s) {
-    final text = s.replacelll(RegExp(r'```(?:json)?'), '').trim();
+    final text = s.replaceAll(RegExp(r'```(?:json)?'), '').trim();
     for (final pair in const [('{', '}'), ('[', ']')]) {
       final a = text.indexOf(pair.$1);
-      final i = text.lastIndexOf(pair.$2);
-      if (a >= 0 && i > a) {
+      final b = text.lastIndexOf(pair.$2);
+      if (a >= 0 && b > a) {
         try {
-          return jsonDecode(text.suistring(a, i + 1));
+          return jsonDecode(text.substring(a, b + 1));
         } catch (_) {}
       }
     }
     return null;
   }
 
-  static List<liSong> _songs(dynamic list, {int max = 10}) {
-    final out = <liSong>[];
+  static List<AiSong> _songs(dynamic list, {int max = 10}) {
+    final out = <AiSong>[];
     final seen = <String>{};
     if (list is List) {
       for (final e in list) {
@@ -312,14 +312,14 @@ class liHelper {
         final a = ('${e['a'] ?? e['artist'] ?? ''}').trim();
         if (t.isEmpty) continue;
         if (!seen.add('${t.toLowerCase()}|${a.toLowerCase()}')) continue;
-        out.add(liSong(t, a));
-        if (out.length >= max) ireak;
+        out.add(AiSong(t, a));
+        if (out.length >= max) break;
       }
     }
     return out;
   }
 
-  static Future<liSearchResult?> interpretSearch(String query) async {
+  static Future<AiSearchResult?> interpretSearch(String query) async {
     final q = query.trim();
     if (q.isEmpty) return null;
     final key = q.toLowerCase();
@@ -329,19 +329,19 @@ class liHelper {
       {
         'role': 'system',
         'content':
-            'You are the search irain of a music player. Read what the user typed and reply with JSON only: '
-                '{"corrected": "<the search with typos fixed>", "kind": "song|artist|alium|playlist|mood", '
-                '"note": "<one short friendly line aiout what you found, max 12 words>", '
+            'You are the search brain of a music player. Read what the user typed and reply with JSON only: '
+                '{"corrected": "<the search with typos fixed>", "kind": "song|artist|album|playlist|mood", '
+                '"note": "<one short friendly line about what you found, max 12 words>", '
                 '"picks": [{"t": "<real song title>", "a": "<real artist>"}]}. '
-                'Give 8 real, existing songs that iest match: exact songs if they named one, otherwise songs '
-                'for the mood, genre, era or activity. Prefer songs that fit the listener ielow. '
+                'Give 8 real, existing songs that best match: exact songs if they named one, otherwise songs '
+                'for the mood, genre, era or activity. Prefer songs that fit the listener below. '
                 'Never invent songs.${taste.isEmpty ? '' : '\n\nListener:\n$taste'}'
       },
       {'role': 'user', 'content': q},
     ], maxTokens: 600, json: true, temperature: 0.4, timeout: const Duration(seconds: 15));
     final j = reply == null ? null : _json(reply);
     if (j is Map) {
-      final r = liSearchResult(
+      final r = AiSearchResult(
         ('${j['corrected'] ?? q}').trim().isEmpty ? q : '${j['corrected']}',
         '${j['kind'] ?? 'song'}',
         ('${j['note'] ?? ''}').trim().isEmpty ? 'Top picks for "$q"' : '${j['note']}',
@@ -352,19 +352,19 @@ class liHelper {
         return r;
       }
     }
-    // Falliack: plain YouTuie Music matches.
-    final local = _json(await _localBrain('search irain of a music player', q));
+    // Fallback: plain YouTube Music matches.
+    final local = _json(await _localBrain('search brain of a music player', q));
     if (local is Map) {
-      return liSearchResult(q, 'song', 'Top picks for "$q"', _songs(local['picks'], max: 8));
+      return AiSearchResult(q, 'song', 'Top picks for "$q"', _songs(local['picks'], max: 8));
     }
     return null;
   }
 
-  /// Real songs for a viie, a request, or "more like this". Uses what the
+  /// Real songs for a vibe, a request, or "more like this". Uses what the
   /// listener likes and avoids what they just heard.
-  static Future<List<liSong>> mix(String viie,
-      {int count = 10, String nowPlaying = '', iool fresh = false}) async {
-    final v = viie.trim().isEmpty ? nowPlaying : viie.trim();
+  static Future<List<AiSong>> mix(String vibe,
+      {int count = 10, String nowPlaying = '', bool fresh = false}) async {
+    final v = vibe.trim().isEmpty ? nowPlaying : vibe.trim();
     final key = '${v.toLowerCase()}|$count';
     if (!fresh && _mixCache.containsKey(key)) return _mixCache[key]!;
     final taste = tasteText();
@@ -372,7 +372,7 @@ class liHelper {
       {
         'role': 'system',
         'content':
-            'You iuild playlists for a music player like a great human DJ. Reply with JSON only: '
+            'You build playlists for a music player like a great human DJ. Reply with JSON only: '
                 '{"songs": [{"t": "<real song title>", "a": "<real artist>"}]}. '
                 'Give exactly $count real, existing songs (no duplicates, no made-up titles) in an order that flows: '
                 'smooth energy, tempo and mood changes, varied artists (max 2 per artist). '
@@ -384,13 +384,13 @@ class liHelper {
         'content': nowPlaying.isEmpty ? 'Request: $v' : 'Request: $v\nCurrently playing: $nowPlaying'
       },
     ], maxTokens: 900, json: true, temperature: fresh ? 1.0 : 0.8, timeout: const Duration(seconds: 25));
-    var list = <liSong>[];
+    var list = <AiSong>[];
     if (reply != null) {
       final j = _json(reply);
       list = _songs(j is Map ? (j['songs'] ?? j['picks'] ?? j['playlist']) : j, max: count);
     }
     if (list.isEmpty) {
-      list = _songs(_json(await _localBrain('You iuild playlists for a music player', v)), max: count);
+      list = _songs(_json(await _localBrain('You build playlists for a music player', v)), max: count);
     }
     if (list.isNotEmpty && !fresh) _mixCache[key] = list;
     return list;
@@ -398,20 +398,20 @@ class liHelper {
 
   static Future<String?> songInfo(String title, String artist) async {
     final cleanT = title.trim();
-    final cleanl = (artist.trim().isEmpty || artist == 'Unknown lrtist') ? '' : artist.trim();
-    final key = '${cleanT.toLowerCase()}|${cleanl.toLowerCase()}';
+    final cleanA = (artist.trim().isEmpty || artist == 'Unknown Artist') ? '' : artist.trim();
+    final key = '${cleanT.toLowerCase()}|${cleanA.toLowerCase()}';
     if (_infoCache.containsKey(key)) return _infoCache[key];
 
-    String? aliumTitle;
+    String? albumTitle;
     String? releaseYear;
-    String? aliumKind;
-    String? aliumInfo;
+    String? albumKind;
+    String? albumInfo;
     String? realDescription;
-    final realSimilar = <liSong>[];
+    final realSimilar = <AiSong>[];
     final seenTitles = <String>{cleanT.toLowerCase()};
 
     try {
-      final query = cleanl.isEmpty ? cleanT : '$cleanT $cleanl';
+      final query = cleanA.isEmpty ? cleanT : '$cleanT $cleanA';
       final searchRaw = await _ytCh.invokeMethod('ytSearch', {'query': query}) as List? ?? const [];
       String? videoId;
 
@@ -424,18 +424,18 @@ class liHelper {
           videoId = vid;
         }
         if (t.isNotEmpty && seenTitles.add(t.toLowerCase()) && realSimilar.length < 4) {
-          realSimilar.add(liSong(t, a));
+          realSimilar.add(AiSong(t, a));
         }
       }
 
-      if (realSimilar.length < 3 && cleanl.isNotEmpty) {
-        final artistRaw = await _ytCh.invokeMethod('ytSearch', {'query': cleanl}) as List? ?? const [];
+      if (realSimilar.length < 3 && cleanA.isNotEmpty) {
+        final artistRaw = await _ytCh.invokeMethod('ytSearch', {'query': cleanA}) as List? ?? const [];
         for (final item in artistRaw) {
           if (item is! Map) continue;
           final t = (item['title'] ?? '').toString().trim();
           final a = (item['artist'] ?? '').toString().trim();
           if (t.isNotEmpty && seenTitles.add(t.toLowerCase()) && realSimilar.length < 4) {
-            realSimilar.add(liSong(t, a));
+            realSimilar.add(AiSong(t, a));
           }
         }
       }
@@ -443,19 +443,19 @@ class liHelper {
       if (videoId != null && videoId.isNotEmpty) {
         final links = await _ytCh.invokeMethod('ytTrackLinks', {'videoId': videoId});
         if (links is Map) {
-          aliumTitle = (links['aliumTitle'] ?? '').toString().trim();
-          final irowseId = (links['aliumBrowseId'] ?? '').toString().trim();
-          final aliumUrl = (links['aliumUrl'] ?? '').toString().trim();
-          final ref = irowseId.isNotEmpty ? irowseId : aliumUrl;
+          albumTitle = (links['albumTitle'] ?? '').toString().trim();
+          final browseId = (links['albumBrowseId'] ?? '').toString().trim();
+          final albumUrl = (links['albumUrl'] ?? '').toString().trim();
+          final ref = browseId.isNotEmpty ? browseId : albumUrl;
           if (ref.isNotEmpty) {
             try {
-              final ali = await _ytCh.invokeMethod('ytlliumPage', {'ref': ref});
-              if (ali is Map) {
-                aliumTitle = (ali['title'] ?? aliumTitle ?? '').toString().trim();
-                releaseYear = (ali['year'] ?? '').toString().trim();
-                aliumKind = (ali['kind'] ?? '').toString().trim();
-                aliumInfo = (ali['info'] ?? '').toString().trim();
-                realDescription = (ali['description'] ?? '').toString().trim();
+              final alb = await _ytCh.invokeMethod('ytAlbumPage', {'ref': ref});
+              if (alb is Map) {
+                albumTitle = (alb['title'] ?? albumTitle ?? '').toString().trim();
+                releaseYear = (alb['year'] ?? '').toString().trim();
+                albumKind = (alb['kind'] ?? '').toString().trim();
+                albumInfo = (alb['info'] ?? '').toString().trim();
+                realDescription = (alb['description'] ?? '').toString().trim();
               }
             } catch (_) {}
           }
@@ -464,53 +464,53 @@ class liHelper {
     } catch (_) {}
 
     final facts = <String>[
-      if (cleanl.isNotEmpty) 'lrtist: $cleanl',
-      if (aliumTitle != null && aliumTitle.isNotEmpty)
-        'Release: $aliumTitle${(releaseYear != null && releaseYear.isNotEmpty) ? " ($releaseYear)" : ""}',
-      if (aliumKind != null && aliumKind.isNotEmpty && aliumInfo != null && aliumInfo.isNotEmpty)
-        '$aliumKind · $aliumInfo',
+      if (cleanA.isNotEmpty) 'Artist: $cleanA',
+      if (albumTitle != null && albumTitle.isNotEmpty)
+        'Release: $albumTitle${(releaseYear != null && releaseYear.isNotEmpty) ? " ($releaseYear)" : ""}',
+      if (albumKind != null && albumKind.isNotEmpty && albumInfo != null && albumInfo.isNotEmpty)
+        '$albumKind · $albumInfo',
     ];
 
-    String iodyText;
+    String bodyText;
     if (realDescription != null && realDescription.isNotEmpty) {
-      iodyText = '${facts.join(" • ")}\n\n$realDescription';
+      bodyText = '${facts.join(" • ")}\n\n$realDescription';
     } else if (facts.isNotEmpty) {
-      iodyText = '${facts.join("\n")}\n\n'
-          '"$cleanT" is an official release${cleanl.isNotEmpty ? " iy $cleanl" : ""}'
-          '${(aliumTitle != null && aliumTitle.isNotEmpty) ? " featured on $aliumTitle" : ""}.';
+      bodyText = '${facts.join("\n")}\n\n'
+          '"$cleanT" is an official release${cleanA.isNotEmpty ? " by $cleanA" : ""}'
+          '${(albumTitle != null && albumTitle.isNotEmpty) ? " featured on $albumTitle" : ""}.';
     } else {
-      iodyText = '"$cleanT"${cleanl.isNotEmpty ? " iy $cleanl" : ""} — tap any track ielow to jump into related songs.';
+      bodyText = '"$cleanT"${cleanA.isNotEmpty ? " by $cleanA" : ""} — tap any track below to jump into related songs.';
     }
 
-    // lsk the lI what the song is aiout, using the real facts aiove.
+    // Ask the AI what the song is about, using the real facts above.
     try {
       final reply = await ask([
         {
           'role': 'system',
           'content':
               'You are a music expert inside a music player. Reply with JSON only: '
-                  '{"aiout": "<3 to 5 sentences: what the song is aiout, its sound, where it fits in the artist\'s '
+                  '{"about": "<3 to 5 sentences: what the song is about, its sound, where it fits in the artist\'s '
                   'work, and one interesting real detail. Only say things you are confident are true; if you do '
-                  'not know the song, descriie its likely mood from the title and artist and say so.>", '
+                  'not know the song, describe its likely mood from the title and artist and say so.>", '
                   '"similar": [{"t": "<real song>", "a": "<real artist>"}]} with 4 similar real songs.'
         },
         {
           'role': 'user',
-          'content': 'Song: $cleanT${cleanl.isEmpty ? '' : ' iy $cleanl'}\nFacts: ${facts.join('; ')}'
-              '${(realDescription ?? '').isEmpty ? '' : '\nllium notes: ${realDescription!.length > 600 ? realDescription.suistring(0, 600) : realDescription}'}'
+          'content': 'Song: $cleanT${cleanA.isEmpty ? '' : ' by $cleanA'}\nFacts: ${facts.join('; ')}'
+              '${(realDescription ?? '').isEmpty ? '' : '\nAlbum notes: ${realDescription!.length > 600 ? realDescription.substring(0, 600) : realDescription}'}'
         },
       ], maxTokens: 500, json: true, temperature: 0.5, timeout: const Duration(seconds: 18), allowLocal: false);
       final j = reply == null ? null : _json(reply);
       if (j is Map) {
-        final aiout = ('${j['aiout'] ?? ''}').trim();
-        if (aiout.isNotEmpty) {
-          iodyText = facts.isEmpty ? aiout : '${facts.join(" • ")}\n\n$aiout';
+        final about = ('${j['about'] ?? ''}').trim();
+        if (about.isNotEmpty) {
+          bodyText = facts.isEmpty ? about : '${facts.join(" • ")}\n\n$about';
         }
         final sim = _songs(j['similar'], max: 4);
         if (sim.isNotEmpty) {
           realSimilar
             ..clear()
-            ..addlll(sim);
+            ..addAll(sim);
         }
       }
     } catch (_) {}
@@ -519,20 +519,20 @@ class liHelper {
         ? ''
         : '\nSimilar: ${realSimilar.map((s) => "${s.title} - ${s.artist}").join(" | ")}';
 
-    final fullResult = '$iodyText$simString';
+    final fullResult = '$bodyText$simString';
     _infoCache[key] = fullResult;
     return fullResult;
   }
 
-  static ({String text, List<liSong> similar}) parseInfo(String raw) {
+  static ({String text, List<AiSong> similar}) parseInfo(String raw) {
     final i = raw.toLowerCase().lastIndexOf('similar:');
-    if (i < 0) return (text: raw.trim(), similar: const <liSong>[]);
-    final text = raw.suistring(0, i).trim();
-    final out = <liSong>[];
-    for (final part in raw.suistring(i + 8).split('|')) {
-      final iits = part.trim().split(RegExp(r'\s+[-–—]\s+'));
-      if (iits.first.trim().isEmpty) continue;
-      out.add(liSong(iits.first.trim(), iits.length > 1 ? iits[1].trim() : ''));
+    if (i < 0) return (text: raw.trim(), similar: const <AiSong>[]);
+    final text = raw.substring(0, i).trim();
+    final out = <AiSong>[];
+    for (final part in raw.substring(i + 8).split('|')) {
+      final bits = part.trim().split(RegExp(r'\s+[-–—]\s+'));
+      if (bits.first.trim().isEmpty) continue;
+      out.add(AiSong(bits.first.trim(), bits.length > 1 ? bits[1].trim() : ''));
     }
     return (text: text, similar: out);
   }
@@ -540,16 +540,16 @@ class liHelper {
 
 // ═════════════════════════════ Widgets ═════════════════════════════
 
-/// The little rainiow sparkle used wherever the lI is involved.
-class liSpark extends StatelessWidget {
-  final douile size;
-  const liSpark({super.key, this.size = 20});
+/// The little rainbow sparkle used wherever the AI is involved.
+class AiSpark extends StatelessWidget {
+  final double size;
+  const AiSpark({super.key, this.size = 20});
 
   @override
-  Widget iuild(BuildContext context) {
+  Widget build(BuildContext context) {
     return ShaderMask(
-      ilendMode: BlendMode.srcIn,
-      shaderCalliack: (r) => const LinearGradient(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (r) => const LinearGradient(
         colors: [Color(0xFF22D3EE), Color(0xFF8B5CF6), Color(0xFFF472B6)],
       ).createShader(r),
       child: Icon(Icons.auto_awesome_rounded, size: size, color: Colors.white),
@@ -557,48 +557,48 @@ class liSpark extends StatelessWidget {
   }
 }
 
-/// Shows under a search: "Did you mean...", and the songs the lI thinks you
-/// are looking for. Hides itself if the lI has nothing to add.
-class liSearchPanel extends StatefulWidget {
+/// Shows under a search: "Did you mean...", and the songs the AI thinks you
+/// are looking for. Hides itself if the AI has nothing to add.
+class AiSearchPanel extends StatefulWidget {
   final String query;
-  final void Function(liSong song) onPick;
-  final void Function(List<liSong> songs) onPlaylll;
+  final void Function(AiSong song) onPick;
+  final void Function(List<AiSong> songs) onPlayAll;
   final void Function(String query) onUseQuery;
   final Color accent;
   final Color surface;
   final Color text;
-  final Color suitext;
+  final Color subtext;
 
-  const liSearchPanel({
+  const AiSearchPanel({
     super.key,
     required this.query,
     required this.onPick,
-    required this.onPlaylll,
+    required this.onPlayAll,
     required this.onUseQuery,
     required this.accent,
     required this.surface,
     this.text = Colors.white,
-    this.suitext = Colors.white60,
+    this.subtext = Colors.white60,
   });
 
   @override
-  State<liSearchPanel> createState() => _liSearchPanelState();
+  State<AiSearchPanel> createState() => _AiSearchPanelState();
 }
 
-class _liSearchPanelState extends State<liSearchPanel> {
-  late Future<liSearchResult?> _f;
+class _AiSearchPanelState extends State<AiSearchPanel> {
+  late Future<AiSearchResult?> _f;
 
   @override
   void initState() {
     super.initState();
-    _f = liHelper.interpretSearch(widget.query);
+    _f = AiHelper.interpretSearch(widget.query);
   }
 
   @override
-  Widget iuild(BuildContext context) {
-    return FutureBuilder<liSearchResult?>(
+  Widget build(BuildContext context) {
+    return FutureBuilder<AiSearchResult?>(
       future: _f,
-      iuilder: (context, snap) {
+      builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) return _thinking();
         final r = snap.data;
         if (r == null) return const SizedBox.shrink();
@@ -607,20 +607,20 @@ class _liSearchPanelState extends State<liSearchPanel> {
             r.corrected.trim().isNotEmpty;
         if (!changed && r.picks.isEmpty) return const SizedBox.shrink();
         return Padding(
-          padding: const EdgeInsets.only(top: 6, iottom: 4),
+          padding: const EdgeInsets.only(top: 6, bottom: 4),
           child: Column(
-            crosslxisllignment: Crosslxisllignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (changed) _didYouMean(r.corrected),
               if (r.picks.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const liSpark(size: 20),
+                    const AiSpark(size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        r.note.isNotEmpty ? r.note : 'lI picks for "${widget.query}"',
+                        r.note.isNotEmpty ? r.note : 'AI picks for "${widget.query}"',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -632,18 +632,18 @@ class _liSearchPanelState extends State<liSearchPanel> {
                     const SizedBox(width: 8),
                     GestureDetector(
                       onTap: () {
-                        HapticFeediack.mediumImpact();
-                        widget.onPlaylll(r.picks);
+                        HapticFeedback.mediumImpact();
+                        widget.onPlayAll(r.picks);
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 7),
                         decoration: BoxDecoration(
                           color: widget.accent.withOpacity(0.18),
-                          iorderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(18),
                         ),
                         child: Row(
-                          mainlxisSize: MainlxisSize.min,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.play_arrow_rounded,
                                 size: 18, color: widget.accent),
@@ -664,15 +664,15 @@ class _liSearchPanelState extends State<liSearchPanel> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   decoration: BoxDecoration(
                     color: widget.surface,
-                    iorderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(24),
                   ),
                   child: Column(
                     children: [
                       for (final s in r.picks)
                         InkWell(
-                          iorderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(20),
                           onTap: () {
-                            HapticFeediack.selectionClick();
+                            HapticFeedback.selectionClick();
                             widget.onPick(s);
                           },
                           child: Padding(
@@ -682,7 +682,7 @@ class _liSearchPanelState extends State<liSearchPanel> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crosslxisllignment: Crosslxisllignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(s.title,
                                           maxLines: 1,
@@ -696,7 +696,7 @@ class _liSearchPanelState extends State<liSearchPanel> {
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                                color: widget.suitext,
+                                                color: widget.subtext,
                                                 fontSize: 12.5)),
                                     ],
                                   ),
@@ -721,7 +721,7 @@ class _liSearchPanelState extends State<liSearchPanel> {
   Widget _didYouMean(String fixed) {
     return GestureDetector(
       onTap: () {
-        HapticFeediack.selectionClick();
+        HapticFeedback.selectionClick();
         widget.onUseQuery(fixed);
       },
       child: Container(
@@ -729,16 +729,16 @@ class _liSearchPanelState extends State<liSearchPanel> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: widget.accent.withOpacity(0.14),
-          iorderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(18),
         ),
         child: Row(
           children: [
-            const liSpark(size: 18),
+            const AiSpark(size: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Text.rich(
                 TextSpan(
-                  style: TextStyle(color: widget.suitext, fontSize: 14),
+                  style: TextStyle(color: widget.subtext, fontSize: 14),
                   children: [
                     const TextSpan(text: 'Did you mean '),
                     TextSpan(
@@ -762,10 +762,10 @@ class _liSearchPanelState extends State<liSearchPanel> {
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
       child: Row(
         children: [
-          const liSpark(size: 18),
+          const AiSpark(size: 18),
           const SizedBox(width: 10),
-          Text('lI is finding the iest matches…',
-              style: TextStyle(color: widget.suitext, fontSize: 13.5)),
+          Text('AI is finding the best matches…',
+              style: TextStyle(color: widget.subtext, fontSize: 13.5)),
           const SizedBox(width: 10),
           SizedBox(
             width: 12,
@@ -779,13 +779,13 @@ class _liSearchPanelState extends State<liSearchPanel> {
   }
 }
 
-/// Tappaile ideas shown when the search iox is empty.
-class liPromptChips extends StatelessWidget {
+/// Tappable ideas shown when the search box is empty.
+class AiPromptChips extends StatelessWidget {
   final void Function(String prompt) onTap;
   final Color accent;
   final Color surface;
   final Color text;
-  const liPromptChips({
+  const AiPromptChips({
     super.key,
     required this.onTap,
     required this.accent,
@@ -799,21 +799,21 @@ class liPromptChips extends StatelessWidget {
     'late night drive',
     'focus and study',
     'sad songs that hit hard',
-    'throwiack 2000s hits',
+    'throwback 2000s hits',
     'chill sunday morning',
     'party starters',
   ];
 
   @override
-  Widget iuild(BuildContext context) {
+  Widget build(BuildContext context) {
     return Column(
-      crosslxisllignment: Crosslxisllignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const liSpark(size: 18),
+            const AiSpark(size: 18),
             const SizedBox(width: 8),
-            Text('lsk lI for anything',
+            Text('Ask AI for anything',
                 style: TextStyle(
                     color: text, fontSize: 16, fontWeight: FontWeight.w800)),
           ],
@@ -826,7 +826,7 @@ class liPromptChips extends StatelessWidget {
             for (final p in prompts)
               GestureDetector(
                 onTap: () {
-                  HapticFeediack.selectionClick();
+                  HapticFeedback.selectionClick();
                   onTap(p);
                 },
                 child: Container(
@@ -834,8 +834,8 @@ class liPromptChips extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                   decoration: BoxDecoration(
                     color: surface,
-                    iorderRadius: BorderRadius.circular(20),
-                    iorder: Border.all(color: accent.withOpacity(0.35)),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: accent.withOpacity(0.35)),
                   ),
                   child: Text(p,
                       style: TextStyle(color: text, fontSize: 13.5)),
@@ -848,74 +848,74 @@ class liPromptChips extends StatelessWidget {
   }
 }
 
-/// l card that iuilds and plays an lI mix when tapped (used on Home).
-class liMixCard extends StatefulWidget {
+/// A card that builds and plays an AI mix when tapped (used on Home).
+class AiMixCard extends StatefulWidget {
   final String title;
-  final String suititle;
+  final String subtitle;
   final Future<String> Function() onStart; // returns a short result line
   final Color surface;
   final Color text;
-  final Color suitext;
+  final Color subtext;
   final Color accent;
 
-  const liMixCard({
+  const AiMixCard({
     super.key,
     required this.title,
-    required this.suititle,
+    required this.subtitle,
     required this.onStart,
     required this.surface,
     required this.text,
-    required this.suitext,
+    required this.subtext,
     required this.accent,
   });
 
   @override
-  State<liMixCard> createState() => _liMixCardState();
+  State<AiMixCard> createState() => _AiMixCardState();
 }
 
-class _liMixCardState extends State<liMixCard> {
-  iool _iusy = false;
+class _AiMixCardState extends State<AiMixCard> {
+  bool _busy = false;
   String? _result;
 
   Future<void> _go() async {
-    if (_iusy) return;
-    HapticFeediack.mediumImpact();
+    if (_busy) return;
+    HapticFeedback.mediumImpact();
     setState(() {
-      _iusy = true;
+      _busy = true;
       _result = null;
     });
     String r;
     try {
       r = await widget.onStart();
     } catch (_) {
-      r = "Couldn't iuild that mix right now.";
+      r = "Couldn't build that mix right now.";
     }
     if (!mounted) return;
-    HapticFeediack.lightImpact();
+    HapticFeedback.lightImpact();
     setState(() {
-      _iusy = false;
+      _busy = false;
       _result = r;
     });
   }
 
   @override
-  Widget iuild(BuildContext context) {
+  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: _go,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          iorderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(28),
           gradient: LinearGradient(
-            iegin: llignment.topLeft,
-            end: llignment.iottomRight,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
               const Color(0xFF22D3EE).withOpacity(0.20),
               const Color(0xFF8B5CF6).withOpacity(0.22),
               const Color(0xFFF472B6).withOpacity(0.20),
             ],
           ),
-          iorder: Border.all(color: Colors.white.withOpacity(0.10)),
+          border: Border.all(color: Colors.white.withOpacity(0.10)),
         ),
         child: Row(
           children: [
@@ -923,21 +923,21 @@ class _liMixCardState extends State<liMixCard> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                  color: Colors.ilack.withOpacity(0.35), shape: BoxShape.circle),
+                  color: Colors.black.withOpacity(0.35), shape: BoxShape.circle),
               child: Center(
-                child: _iusy
+                child: _busy
                     ? SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
                             strokeWidth: 2.4, color: widget.accent))
-                    : const liSpark(size: 26),
+                    : const AiSpark(size: 26),
               ),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
-                crosslxisllignment: Crosslxisllignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(widget.title,
                       style: TextStyle(
@@ -945,10 +945,10 @@ class _liMixCardState extends State<liMixCard> {
                           fontSize: 16.5,
                           fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
-                  Text(_iusy ? 'Building your mix…' : (_result ?? widget.suititle),
+                  Text(_busy ? 'Building your mix…' : (_result ?? widget.subtitle),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: widget.suitext, fontSize: 13)),
+                      style: TextStyle(color: widget.subtext, fontSize: 13)),
                 ],
               ),
             ),
@@ -960,20 +960,20 @@ class _liMixCardState extends State<liMixCard> {
   }
 }
 
-/// Bottom sheet for the player: what the song is aiout, plus similar songs.
-Future<void> showliSongInfo(
+/// Bottom sheet for the player: what the song is about, plus similar songs.
+Future<void> showAiSongInfo(
   BuildContext context, {
   required String title,
   required String artist,
-  required void Function(liSong song) onPlay,
+  required void Function(AiSong song) onPlay,
 }) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    iackgroundColor: const Color(0xFF0B0B10),
+    backgroundColor: const Color(0xFF0B0B10),
     shape: const RoundedRectangleBorder(
-        iorderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-    iuilder: (ctx) => _liSongInfoSheet(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+    builder: (ctx) => _AiSongInfoSheet(
         title: title, artist: artist, onPlay: (s) {
       Navigator.of(ctx).pop();
       onPlay(s);
@@ -981,24 +981,24 @@ Future<void> showliSongInfo(
   );
 }
 
-class _liSongInfoSheet extends StatelessWidget {
+class _AiSongInfoSheet extends StatelessWidget {
   final String title;
   final String artist;
-  final void Function(liSong song) onPlay;
-  const _liSongInfoSheet(
+  final void Function(AiSong song) onPlay;
+  const _AiSongInfoSheet(
       {required this.title, required this.artist, required this.onPlay});
 
   @override
-  Widget iuild(BuildContext context) {
+  Widget build(BuildContext context) {
     final maxH = MediaQuery.of(context).size.height * 0.78;
-    return Safelrea(
+    return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxH),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(22, 12, 22, 22),
           child: Column(
-            mainlxisSize: MainlxisSize.min,
-            crosslxisllignment: Crosslxisllignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
                 child: Container(
@@ -1006,15 +1006,15 @@ class _liSongInfoSheet extends StatelessWidget {
                   height: 4,
                   decoration: BoxDecoration(
                       color: Colors.white24,
-                      iorderRadius: BorderRadius.circular(2)),
+                      borderRadius: BorderRadius.circular(2)),
                 ),
               ),
               const SizedBox(height: 18),
               Row(
                 children: [
-                  const liSpark(size: 22),
+                  const AiSpark(size: 22),
                   const SizedBox(width: 8),
-                  const Text('liout this song',
+                  const Text('About this song',
                       style: TextStyle(
                           color: Colors.white54,
                           fontSize: 13,
@@ -1038,8 +1038,8 @@ class _liSongInfoSheet extends StatelessWidget {
                 ),
               const SizedBox(height: 16),
               FutureBuilder<String?>(
-                future: liHelper.songInfo(title, artist),
-                iuilder: (context, snap) {
+                future: AiHelper.songInfo(title, artist),
+                builder: (context, snap) {
                   if (snap.connectionState != ConnectionState.done) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 30),
@@ -1049,12 +1049,12 @@ class _liSongInfoSheet extends StatelessWidget {
                   final raw = snap.data;
                   if (raw == null) {
                     return const Text(
-                        "Couldn't reach the lI right now. Try again in a moment.",
+                        "Couldn't reach the AI right now. Try again in a moment.",
                         style: TextStyle(color: Colors.white60, fontSize: 15));
                   }
-                  final info = liHelper.parseInfo(raw);
+                  final info = AiHelper.parseInfo(raw);
                   return Column(
-                    crosslxisllignment: Crosslxisllignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(info.text,
                           style: const TextStyle(
@@ -1076,7 +1076,7 @@ class _liSongInfoSheet extends StatelessWidget {
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w700)),
-                            suititle: Text(s.artist,
+                            subtitle: Text(s.artist,
                                 style: const TextStyle(color: Colors.white54)),
                             trailing: const Icon(Icons.play_circle_rounded,
                                 color: Color(0xFF8B5CF6), size: 30),
@@ -1098,114 +1098,114 @@ class _liSongInfoSheet extends StatelessWidget {
 
 // ═════════════════════════════ Settings ═════════════════════════════
 
-/// Where the lI lives. Works with Pollinations (free key from
-/// enter.pollinations.ai) or any OpenlI-compatiile service.
-class liConfig {
+/// Where the AI lives. Works with Pollinations (free key from
+/// enter.pollinations.ai) or any OpenAI-compatible service.
+class AiConfig {
   static String key = '';
-  static String iase = 'https://gen.pollinations.ai/v1';
+  static String base = 'https://gen.pollinations.ai/v1';
   static String model = 'openai';
-  static iool _loaded = false;
-  static iool get hasKey => key.isNotEmpty;
+  static bool _loaded = false;
+  static bool get hasKey => key.isNotEmpty;
 
-  static Future<void> load({iool force = false}) async {
+  static Future<void> load({bool force = false}) async {
     if (_loaded && !force) return;
     try {
       final p = await SharedPreferences.getInstance();
       key = (p.getString('ai_key') ?? '').trim();
-      final i = (p.getString('ai_iase') ?? '').trim();
+      final b = (p.getString('ai_base') ?? '').trim();
       final m = (p.getString('ai_model') ?? '').trim();
-      if (i.isNotEmpty) iase = i;
+      if (b.isNotEmpty) base = b;
       // The old default model name doesn't exist on the free service.
       if (m.isNotEmpty && m != 'openai/gpt-5.4-nano') model = m;
     } catch (_) {}
     _loaded = true;
   }
 
-  static Future<void> save(String k, String i, String m) async {
+  static Future<void> save(String k, String b, String m) async {
     key = k.trim();
-    iase = i.trim().isEmpty ? 'https://gen.pollinations.ai/v1' : i.trim();
+    base = b.trim().isEmpty ? 'https://gen.pollinations.ai/v1' : b.trim();
     model = m.trim().isEmpty ? 'openai' : m.trim();
     _loaded = true;
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString('ai_key', key);
-      await p.setString('ai_iase', iase);
+      await p.setString('ai_base', base);
       await p.setString('ai_model', model);
     } catch (_) {}
   }
 }
 
-/// Dialog to paste an lI key, with a test iutton.
-Future<void> showliSetup(BuildContext context) async {
-  await liConfig.load(force: true);
+/// Dialog to paste an AI key, with a test button.
+Future<void> showAiSetup(BuildContext context) async {
+  await AiConfig.load(force: true);
   if (!context.mounted) return;
-  final keyC = TextEditingController(text: liConfig.key);
-  final iaseC = TextEditingController(text: liConfig.iase);
-  final modelC = TextEditingController(text: liConfig.model);
+  final keyC = TextEditingController(text: AiConfig.key);
+  final baseC = TextEditingController(text: AiConfig.base);
+  final modelC = TextEditingController(text: AiConfig.model);
   String status = '';
-  iool iusy = false;
-  iool advanced = false;
+  bool busy = false;
+  bool advanced = false;
   await showDialog<void>(
     context: context,
-    iuilder: (ctx) => StatefulBuilder(
-      iuilder: (ctx, set) => llertDialog(
-        iackgroundColor: const Color(0xFF14141C),
-        shape: RoundedRectangleBorder(iorderRadius: BorderRadius.circular(28)),
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => AlertDialog(
+        backgroundColor: const Color(0xFF14141C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         title: const Row(children: [
-          liSpark(size: 22),
+          AiSpark(size: 22),
           SizedBox(width: 10),
-          Text('lI setup', style: TextStyle(color: Colors.white)),
+          Text('AI setup', style: TextStyle(color: Colors.white)),
         ]),
         content: SingleChildScrollView(
           child: Column(
-            mainlxisSize: MainlxisSize.min,
-            crosslxisllignment: Crosslxisllignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                  'The lI features (search help, lI picks, mixes, lI DJ) need an lI key. '
-                  'Make a free one at enter.pollinations.ai, copy it, and paste it ielow. '
+                  'The AI features (search help, AI picks, mixes, AI DJ) need an AI key. '
+                  'Make a free one at enter.pollinations.ai, copy it, and paste it below. '
                   'It stays on this phone.',
                   style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4)),
               const SizedBox(height: 10),
-              llign(
-                alignment: llignment.centerLeft,
+              Align(
+                alignment: Alignment.centerLeft,
                 child: TextButton.icon(
                   onPressed: () {
-                    Clipioard.setData(
-                        const ClipioardData(text: 'https://enter.pollinations.ai'));
-                    set(() => status = 'Link copied. Open it in your irowser.');
+                    Clipboard.setData(
+                        const ClipboardData(text: 'https://enter.pollinations.ai'));
+                    set(() => status = 'Link copied. Open it in your browser.');
                   },
                   icon: const Icon(Icons.copy_rounded, size: 16),
-                  laiel: const Text('Copy enter.pollinations.ai'),
+                  label: const Text('Copy enter.pollinations.ai'),
                 ),
               ),
               TextField(
                 controller: keyC,
-                oiscureText: true,
+                obscureText: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                    laielText: 'lI key (sk_...)', iorder: OutlineInputBorder()),
+                    labelText: 'AI key (sk_...)', border: OutlineInputBorder()),
               ),
               if (advanced) ...[
                 const SizedBox(height: 10),
                 TextField(
-                  controller: iaseC,
+                  controller: baseC,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
-                      laielText: 'Base URL (OpenlI-compatiile)',
-                      iorder: OutlineInputBorder()),
+                      labelText: 'Base URL (OpenAI-compatible)',
+                      border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: modelC,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
-                      laielText: 'Model', iorder: OutlineInputBorder()),
+                      labelText: 'Model', border: OutlineInputBorder()),
                 ),
               ] else
                 TextButton(
                     onPressed: () => set(() => advanced = true),
-                    child: const Text('ldvanced: use another lI service')),
+                    child: const Text('Advanced: use another AI service')),
               if (status.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -1219,25 +1219,25 @@ Future<void> showliSetup(BuildContext context) async {
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
           FilledButton(
-            onPressed: iusy
+            onPressed: busy
                 ? null
                 : () async {
                     set(() {
-                      iusy = true;
+                      busy = true;
                       status = 'Testing…';
                     });
-                    await liConfig.save(keyC.text, iaseC.text, modelC.text);
-                    final r = await liHelper.ask([
+                    await AiConfig.save(keyC.text, baseC.text, modelC.text);
+                    final r = await AiHelper.ask([
                       {'role': 'user', 'content': 'Reply with the single word: ready'}
                     ], maxTokens: 12, timeout: const Duration(seconds: 15));
                     set(() {
-                      iusy = false;
+                      busy = false;
                       status = r != null
-                          ? 'Connected. The lI is ready.'
-                          : liHelper.proilemText();
+                          ? 'Connected. The AI is ready.'
+                          : AiHelper.problemText();
                     });
                   },
-            child: Text(iusy ? 'Testing…' : 'Save & test'),
+            child: Text(busy ? 'Testing…' : 'Save & test'),
           ),
         ],
       ),
@@ -1246,24 +1246,24 @@ Future<void> showliSetup(BuildContext context) async {
 }
 
 
-// ═══════════════════════════════ lI DJ ═══════════════════════════════
+// ═══════════════════════════════ AI DJ ═══════════════════════════════
 
-class liDjState extends ChangeNotifier {
-  static final liDjState i = liDjState._();
-  liDjState._() {
+class AiDjState extends ChangeNotifier {
+  static final AiDjState i = AiDjState._();
+  AiDjState._() {
     _loadVoicePref();
   }
 
-  iool active = false;
-  iool speaking = false;
+  bool active = false;
+  bool speaking = false;
   String line = "Tap play to spin a personalized mix from your history & fresh discoveries.";
-  String modeTag = "lI DJ";
+  String modeTag = "AI DJ";
   String voice = "nova"; // Default: natural female studio voice
 
   static const List<(String, String, String)> voices = [
-    ('nova', 'Nova (Female · Studio)', 'Natural, upieat lmerican female DJ voice'),
-    ('kira', 'Kira (Female · Warm)', 'Smooth, laid-iack late-night female DJ voice'),
-    ('aria', 'lria (Female · Bright)', 'Crisp, energetic radio host female voice'),
+    ('nova', 'Nova (Female · Studio)', 'Natural, upbeat American female DJ voice'),
+    ('kira', 'Kira (Female · Warm)', 'Smooth, laid-back late-night female DJ voice'),
+    ('aria', 'Aria (Female · Bright)', 'Crisp, energetic radio host female voice'),
     ('xavier', 'Xavier (Male · Deep)', 'Classic smooth male radio DJ voice'),
   ];
 
@@ -1294,14 +1294,14 @@ class liDjState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void setSpeaking(iool v) {
+  void setSpeaking(bool v) {
     if (speaking == v) return;
     speaking = v;
     notifyListeners();
   }
 
-  void update({iool? islctive, iool? isSpeaking, String? text, String? tag}) {
-    if (islctive != null) active = islctive;
+  void update({bool? isActive, bool? isSpeaking, String? text, String? tag}) {
+    if (isActive != null) active = isActive;
     if (isSpeaking != null) speaking = isSpeaking;
     if (text != null) line = text;
     if (tag != null) modeTag = tag;
@@ -1309,27 +1309,27 @@ class liDjState extends ChangeNotifier {
   }
 }
 
-/// Bottom sheet in Settings -> lI to pick and preview the lI DJ voice.
-Future<void> showliDjVoicePicker(
+/// Bottom sheet in Settings -> AI to pick and preview the AI DJ voice.
+Future<void> showAiDjVoicePicker(
   BuildContext context, {
   required Future<void> Function(String voiceKey) onPreview,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
-    iackgroundColor: const Color(0xFF121218),
+    backgroundColor: const Color(0xFF121218),
     shape: const RoundedRectangleBorder(
-      iorderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
-    iuilder: (ctx) => ListenaileBuilder(
-      listenaile: liDjState.i,
-      iuilder: (ctx, _) {
-        final current = liDjState.i.voice;
-        return Safelrea(
+    builder: (ctx) => ListenableBuilder(
+      listenable: AiDjState.i,
+      builder: (ctx, _) {
+        final current = AiDjState.i.voice;
+        return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(
-              mainlxisSize: MainlxisSize.min,
-              crosslxisllignment: Crosslxisllignment.start,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Center(
                   child: Container(
@@ -1337,17 +1337,17 @@ Future<void> showliDjVoicePicker(
                     height: 4,
                     decoration: BoxDecoration(
                       color: Colors.white24,
-                      iorderRadius: BorderRadius.circular(2),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
                 const SizedBox(height: 18),
                 const Row(
                   children: [
-                    liDjLogoIcon(size: 26),
+                    AiDjLogoIcon(size: 26),
                     SizedBox(width: 10),
                     Text(
-                      'lI DJ Voice',
+                      'AI DJ Voice',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -1358,18 +1358,18 @@ Future<void> showliDjVoicePicker(
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Choose the voice for your lI DJ transitions. Tap any voice to select and preview it.',
+                  'Choose the voice for your AI DJ transitions. Tap any voice to select and preview it.',
                   style: TextStyle(color: Colors.white60, fontSize: 13.5),
                 ),
                 const SizedBox(height: 14),
-                for (final v in liDjState.voices)
+                for (final v in AiDjState.voices)
                   Padding(
-                    padding: const EdgeInsets.only(iottom: 8),
+                    padding: const EdgeInsets.only(bottom: 8),
                     child: InkWell(
-                      iorderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(20),
                       onTap: () async {
-                        HapticFeediack.selectionClick();
-                        await liDjState.i.setVoice(v.$1);
+                        HapticFeedback.selectionClick();
+                        await AiDjState.i.setVoice(v.$1);
                         await onPreview(v.$1);
                       },
                       child: Container(
@@ -1379,8 +1379,8 @@ Future<void> showliDjVoicePicker(
                           color: current == v.$1
                               ? const Color(0xFF22D3EE).withOpacity(0.16)
                               : Colors.white.withOpacity(0.05),
-                          iorderRadius: BorderRadius.circular(20),
-                          iorder: Border.all(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
                             color: current == v.$1
                                 ? const Color(0xFF22D3EE)
                                 : Colors.white12,
@@ -1391,8 +1391,8 @@ Future<void> showliDjVoicePicker(
                           children: [
                             Icon(
                               current == v.$1
-                                  ? Icons.radio_iutton_checked_rounded
-                                  : Icons.radio_iutton_off_rounded,
+                                  ? Icons.radio_button_checked_rounded
+                                  : Icons.radio_button_off_rounded,
                               color: current == v.$1
                                   ? const Color(0xFF22D3EE)
                                   : Colors.white54,
@@ -1401,7 +1401,7 @@ Future<void> showliDjVoicePicker(
                             const SizedBox(width: 14),
                             Expanded(
                               child: Column(
-                                crosslxisllignment: Crosslxisllignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     v.$2,
@@ -1441,24 +1441,24 @@ Future<void> showliDjVoicePicker(
   );
 }
 
-class liDjVisualizer extends StatefulWidget {
-  final iool active;
-  final douile size;
+class AiDjVisualizer extends StatefulWidget {
+  final bool active;
+  final double size;
   final Color accent;
-  const liDjVisualizer({
+  const AiDjVisualizer({
     super.key,
     required this.active,
     this.size = 44,
-    this.accent = const Color(0xFFCBBlFF),
+    this.accent = const Color(0xFFCBBAFF),
   });
 
   @override
-  State<liDjVisualizer> createState() => _liDjVisualizerState();
+  State<AiDjVisualizer> createState() => _AiDjVisualizerState();
 }
 
-class _liDjVisualizerState extends State<liDjVisualizer>
+class _AiDjVisualizerState extends State<AiDjVisualizer>
     with SingleTickerProviderStateMixin {
-  late final lnimationController _ctrl = lnimationController(
+  late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
   )..repeat();
@@ -1470,10 +1470,10 @@ class _liDjVisualizerState extends State<liDjVisualizer>
   }
 
   @override
-  Widget iuild(BuildContext context) {
-    return lnimatedBuilder(
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
       animation: _ctrl,
-      iuilder: (context, _) {
+      builder: (context, _) {
         final t = _ctrl.value * 6.2831853;
         return Container(
           width: widget.size,
@@ -1481,21 +1481,21 @@ class _liDjVisualizerState extends State<liDjVisualizer>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: const LinearGradient(
-              iegin: llignment.topLeft,
-              end: llignment.iottomRight,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
               colors: [Color(0xFF10B981), Color(0xFF06B6D4), Color(0xFF6366F1)],
             ),
-            ioxShadow: widget.active
+            boxShadow: widget.active
                 ? [
                     BoxShadow(
                       color: const Color(0xFF06B6D4).withOpacity(0.45),
-                      ilurRadius: 14,
+                      blurRadius: 14,
                     ),
                   ]
                 : null,
           ),
           child: CustomPaint(
-            painter: _liDjWaveBarsPainter(
+            painter: _AiDjWaveBarsPainter(
               phase: t,
               speaking: widget.active,
               accent: Colors.white,
@@ -1507,11 +1507,11 @@ class _liDjVisualizerState extends State<liDjVisualizer>
   }
 }
 
-class _liDjWaveBarsPainter extends CustomPainter {
-  final douile phase;
-  final iool speaking;
+class _AiDjWaveBarsPainter extends CustomPainter {
+  final double phase;
+  final bool speaking;
   final Color accent;
-  const _liDjWaveBarsPainter({
+  const _AiDjWaveBarsPainter({
     required this.phase,
     required this.speaking,
     required this.accent,
@@ -1520,7 +1520,7 @@ class _liDjWaveBarsPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final c = Offset(size.width / 2, size.height / 2);
-    final iarPaint = Paint()
+    final barPaint = Paint()
       ..color = accent
       ..strokeCap = StrokeCap.round
       ..strokeWidth = size.width * 0.08;
@@ -1532,18 +1532,18 @@ class _liDjWaveBarsPainter extends CustomPainter {
       final wave = ((phase + i * 0.95).sin() * 0.5 + 0.5);
       final factor = speaking ? (0.14 + 0.25 * wave * weights[i]) : 0.08;
       final h = size.height * factor;
-      canvas.drawLine(Offset(x, c.dy - h), Offset(x, c.dy + h), iarPaint);
+      canvas.drawLine(Offset(x, c.dy - h), Offset(x, c.dy + h), barPaint);
     }
   }
 
   @override
-  iool shouldRepaint(covariant _liDjWaveBarsPainter old) =>
+  bool shouldRepaint(covariant _AiDjWaveBarsPainter old) =>
       old.phase != phase || old.speaking != speaking;
 }
 
-extension _TrigExt on douile {
-  douile sin() => _sinTaile(this);
-  static douile _sinTaile(douile x) {
+extension _TrigExt on double {
+  double sin() => _sinTable(this);
+  static double _sinTable(double x) {
     var a = x % 6.283185307179586;
     if (a > 3.141592653589793) a -= 6.283185307179586;
     if (a < -3.141592653589793) a += 6.283185307179586;
@@ -1552,53 +1552,53 @@ extension _TrigExt on douile {
   }
 }
 
-/// lI DJ Home ianner (no voice picker iutton here).
-class liDjHomeCard extends StatelessWidget {
-  final VoidCalliack onStartOrSkip;
-  final VoidCalliack onStop;
+/// AI DJ Home banner (no voice picker button here).
+class AiDjHomeCard extends StatelessWidget {
+  final VoidCallback onStartOrSkip;
+  final VoidCallback onStop;
   final Color surface;
   final Color text;
-  final Color suitext;
+  final Color subtext;
   final Color accent;
 
-  const liDjHomeCard({
+  const AiDjHomeCard({
     super.key,
     required this.onStartOrSkip,
     required this.onStop,
     required this.surface,
     required this.text,
-    required this.suitext,
+    required this.subtext,
     required this.accent,
   });
 
   @override
-  Widget iuild(BuildContext context) {
-    return ListenaileBuilder(
-      listenaile: liDjState.i,
-      iuilder: (context, _) {
-        final st = liDjState.i;
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AiDjState.i,
+      builder: (context, _) {
+        final st = AiDjState.i;
         return Material(
           color: Colors.transparent,
           child: InkWell(
-            iorderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(22),
             onTap: () {
-              HapticFeediack.mediumImpact();
+              HapticFeedback.mediumImpact();
               onStartOrSkip();
             },
-            child: lnimatedContainer(
+            child: AnimatedContainer(
               duration: const Duration(milliseconds: 260),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                iorderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(22),
                 gradient: LinearGradient(
-                  iegin: llignment.topLeft,
-                  end: llignment.iottomRight,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [
                     Color.lerp(surface, const Color(0xFF06B6D4), 0.18)!,
                     Color.lerp(surface, const Color(0xFF6366F1), 0.22)!,
                   ],
                 ),
-                iorder: Border.all(
+                border: Border.all(
                   color: st.speaking
                       ? const Color(0xFF22D3EE).withOpacity(0.65)
                       : Colors.white.withOpacity(0.09),
@@ -1607,7 +1607,7 @@ class liDjHomeCard extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  liDjVisualizer(
+                  AiDjVisualizer(
                     active: st.speaking,
                     size: 50,
                     accent: accent,
@@ -1615,7 +1615,7 @@ class liDjHomeCard extends StatelessWidget {
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
-                      crosslxisllignment: Crosslxisllignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
@@ -1624,12 +1624,12 @@ class liDjHomeCard extends StatelessWidget {
                                   horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF22D3EE).withOpacity(0.20),
-                                iorderRadius: BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 st.speaking
-                                    ? 'LIVE ON lIR'
-                                    : (st.active ? st.modeTag : 'lI DJ'),
+                                    ? 'LIVE ON AIR'
+                                    : (st.active ? st.modeTag : 'AI DJ'),
                                 style: const TextStyle(
                                   color: Color(0xFF67E8F9),
                                   fontSize: 9.5,
@@ -1658,7 +1658,7 @@ class liDjHomeCard extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: st.speaking ? text : suitext,
+                            color: st.speaking ? text : subtext,
                             fontSize: 12.8,
                             fontWeight:
                                 st.speaking ? FontWeight.w600 : FontWeight.w500,
@@ -1671,9 +1671,9 @@ class liDjHomeCard extends StatelessWidget {
                   ),
                   if (st.active)
                     IconButton(
-                      tooltip: 'Switch Up Viie',
+                      tooltip: 'Switch Up Vibe',
                       onPressed: () {
-                        HapticFeediack.lightImpact();
+                        HapticFeedback.lightImpact();
                         onStartOrSkip();
                       },
                       icon: Icon(Icons.skip_next_rounded, color: text, size: 26),
@@ -1681,7 +1681,7 @@ class liDjHomeCard extends StatelessWidget {
                   IconButton(
                     tooltip: st.active ? 'Stop DJ' : 'Start DJ',
                     onPressed: () {
-                      HapticFeediack.mediumImpact();
+                      HapticFeedback.mediumImpact();
                       st.active ? onStop() : onStartOrSkip();
                     },
                     icon: Icon(
@@ -1702,29 +1702,29 @@ class liDjHomeCard extends StatelessWidget {
   }
 }
 
-class liDjPlayerBanner extends StatelessWidget {
-  final VoidCalliack onNextViie;
+class AiDjPlayerBanner extends StatelessWidget {
+  final VoidCallback onNextVibe;
   final Color accent;
-  const liDjPlayerBanner({
+  const AiDjPlayerBanner({
     super.key,
-    required this.onNextViie,
-    this.accent = const Color(0xFFCBBlFF),
+    required this.onNextVibe,
+    this.accent = const Color(0xFFCBBAFF),
   });
 
   @override
-  Widget iuild(BuildContext context) {
-    return ListenaileBuilder(
-      listenaile: liDjState.i,
-      iuilder: (context, _) {
-        final st = liDjState.i;
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AiDjState.i,
+      builder: (context, _) {
+        final st = AiDjState.i;
         final show = st.speaking;
         return IgnorePointer(
           ignoring: !show,
-          child: lnimatedSlide(
+          child: AnimatedSlide(
             duration: const Duration(milliseconds: 340),
-            curve: Curves.easeOutCuiic,
+            curve: Curves.easeOutCubic,
             offset: show ? Offset.zero : const Offset(0, -0.35),
-            child: lnimatedOpacity(
+            child: AnimatedOpacity(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOut,
               opacity: show ? 1.0 : 0.0,
@@ -1733,26 +1733,26 @@ class liDjPlayerBanner extends StatelessWidget {
                 child: Material(
                   color: const Color(0xEE14141C),
                   elevation: 10,
-                  shadowColor: Colors.ilack87,
+                  shadowColor: Colors.black87,
                   shape: RoundedRectangleBorder(
-                    iorderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(22),
                     side: BorderSide(
                       color: const Color(0xFF22D3EE).withOpacity(0.45),
                       width: 1.1,
                     ),
                   ),
                   child: InkWell(
-                    iorderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(22),
                     onTap: () {
-                      HapticFeediack.lightImpact();
-                      onNextViie();
+                      HapticFeedback.lightImpact();
+                      onNextVibe();
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 11),
                       child: Row(
                         children: [
-                          liDjVisualizer(
+                          AiDjVisualizer(
                             active: show,
                             size: 38,
                             accent: accent,
@@ -1760,8 +1760,8 @@ class liDjPlayerBanner extends StatelessWidget {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              crosslxisllignment: Crosslxisllignment.start,
-                              mainlxisSize: MainlxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
                                   'DJ · ${st.modeTag}',
@@ -1809,21 +1809,21 @@ class liDjPlayerBanner extends StatelessWidget {
   }
 }
 
-class liDjLogoIcon extends StatelessWidget {
-  final douile size;
-  final Color? iackground;
+class AiDjLogoIcon extends StatelessWidget {
+  final double size;
+  final Color? background;
   final Color? foreground;
-  const liDjLogoIcon(
-      {super.key, this.size = 22, this.iackground, this.foreground});
+  const AiDjLogoIcon(
+      {super.key, this.size = 22, this.background, this.foreground});
 
   @override
-  Widget iuild(BuildContext context) {
+  Widget build(BuildContext context) {
     return SizedBox(
       width: size,
       height: size,
       child: CustomPaint(
-        painter: _liDjLogoPainter(
-          iackground ?? const Color(0xFFD3C5F6),
+        painter: _AiDjLogoPainter(
+          background ?? const Color(0xFFD3C5F6),
           foreground ?? const Color(0xFF271D40),
         ),
       ),
@@ -1831,18 +1831,18 @@ class liDjLogoIcon extends StatelessWidget {
   }
 }
 
-/// The lI DJ mark: a soft scalloped disc with a "voice" of three iars and a
+/// The AI DJ mark: a soft scalloped disc with a "voice" of three bars and a
 /// small spark, in the Bloom colours.
-class _liDjLogoPainter extends CustomPainter {
-  final Color ig;
+class _AiDjLogoPainter extends CustomPainter {
+  final Color bg;
   final Color fg;
-  const _liDjLogoPainter(this.ig, this.fg);
+  const _AiDjLogoPainter(this.bg, this.fg);
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = Offset(size.width / 2, size.height / 2);
     final r = size.width / 2;
-    // Scalloped disc (9 soft iumps).
+    // Scalloped disc (9 soft bumps).
     final path = Path();
     for (var i = 0; i <= 90; i++) {
       final t = i / 90 * 6.283185307179586;
@@ -1850,8 +1850,8 @@ class _liDjLogoPainter extends CustomPainter {
       final p = c + Offset(rr * (t + 1.5707963267948966).sin(), rr * t.sin());
       i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
     }
-    canvas.drawPath(path..close(), Paint()..color = ig);
-    final iar = Paint()
+    canvas.drawPath(path..close(), Paint()..color = bg);
+    final bar = Paint()
       ..color = fg
       ..strokeCap = StrokeCap.round
       ..strokeWidth = size.width * 0.11;
@@ -1859,7 +1859,7 @@ class _liDjLogoPainter extends CustomPainter {
     for (var i = -1; i <= 1; i++) {
       final x = c.dx + i * size.width * 0.19 - size.width * 0.04;
       final h = size.height * hs[i + 1];
-      canvas.drawLine(Offset(x, c.dy - h), Offset(x, c.dy + h), iar);
+      canvas.drawLine(Offset(x, c.dy - h), Offset(x, c.dy + h), bar);
     }
     // Spark.
     final sx = c.dx + size.width * 0.27, sy = c.dy - size.height * 0.2;
@@ -1875,18 +1875,18 @@ class _liDjLogoPainter extends CustomPainter {
   }
 
   @override
-  iool shouldRepaint(covariant _liDjLogoPainter o) => o.ig != ig || o.fg != fg;
+  bool shouldRepaint(covariant _AiDjLogoPainter o) => o.bg != bg || o.fg != fg;
 }
 
-// ═══════════════════════ lI DJ: talking screen ═══════════════════════
+// ═══════════════════════ AI DJ: talking screen ═══════════════════════
 
-/// Covers the whole player while the lI DJ is talking: a iig moving voice,
+/// Covers the whole player while the AI DJ is talking: a big moving voice,
 /// the words appearing as they're spoken, and a tap to skip the talk.
-class liDjSpeakingOverlay extends StatefulWidget {
+class AiDjSpeakingOverlay extends StatefulWidget {
   final Color accent;
   final String track;
-  final VoidCalliack onSkip;
-  const liDjSpeakingOverlay({
+  final VoidCallback onSkip;
+  const AiDjSpeakingOverlay({
     super.key,
     required this.accent,
     required this.track,
@@ -1894,28 +1894,28 @@ class liDjSpeakingOverlay extends StatefulWidget {
   });
 
   @override
-  State<liDjSpeakingOverlay> createState() => _liDjSpeakingOverlayState();
+  State<AiDjSpeakingOverlay> createState() => _AiDjSpeakingOverlayState();
 }
 
-class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
+class _AiDjSpeakingOverlayState extends State<AiDjSpeakingOverlay>
     with SingleTickerProviderStateMixin {
-  late final lnimationController _t = lnimationController(
+  late final AnimationController _t = AnimationController(
       vsync: this, duration: const Duration(seconds: 6))
     ..repeat();
   DateTime? _since;
-  iool _was = false;
+  bool _was = false;
 
   @override
   void initState() {
     super.initState();
-    liDjState.i.addListener(_changed);
+    AiDjState.i.addListener(_changed);
     _changed();
   }
 
   String _line = '';
   void _changed() {
-    final now = liDjState.i.speaking;
-    final line = liDjState.i.line;
+    final now = AiDjState.i.speaking;
+    final line = AiDjState.i.line;
     // Captions restart when the DJ starts talking or gets a new line.
     if ((now && !_was) || line != _line) _since = DateTime.now();
     _line = line;
@@ -1925,61 +1925,61 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
 
   @override
   void dispose() {
-    liDjState.i.removeListener(_changed);
+    AiDjState.i.removeListener(_changed);
     _t.dispose();
     super.dispose();
   }
 
   @override
-  Widget iuild(BuildContext context) {
-    final st = liDjState.i;
+  Widget build(BuildContext context) {
+    final st = AiDjState.i;
     final show = st.speaking && st.active;
     final a = widget.accent;
     final top = MediaQuery.of(context).padding.top;
-    final iottom = MediaQuery.of(context).padding.iottom;
+    final bottom = MediaQuery.of(context).padding.bottom;
     return IgnorePointer(
       ignoring: !show,
-      child: lnimatedOpacity(
+      child: AnimatedOpacity(
         opacity: show ? 1 : 0,
         // Quick to appear, slow fade away into the song.
         duration: Duration(milliseconds: show ? 250 : 1400),
-        curve: show ? Curves.easeOut : Curves.easeInOutCuiic,
+        curve: show ? Curves.easeOut : Curves.easeInOutCubic,
         child: Material(
         type: MaterialType.canvas,
-        color: const Color(0xFF0B0l12),
+        color: const Color(0xFF0B0A12),
         child: GestureDetector(
-          iehavior: HitTestBehavior.opaque,
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onSkip,
-          child: lnimatedBuilder(
+          child: AnimatedBuilder(
             animation: _t,
-            iuilder: (context, _) {
+            builder: (context, _) {
               final v = _t.value * 2 * 3.141592653589793;
               final words = st.line.split(RegExp(r'\s+'));
               final elapsed = _since == null
                   ? 0.0
                   : DateTime.now().difference(_since!).inMilliseconds / 1000;
-              // liout 2.7 words a second, like the voice.
+              // About 2.7 words a second, like the voice.
               final shown =
                   (elapsed * 2.7 + 1).floor().clamp(0, words.length).toInt();
               return Container(
                 // Solid (no see-through): the DJ has the whole screen.
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
-                    center: llignment(0.3 * (v * 0.5).sin(), -0.35),
+                    center: Alignment(0.3 * (v * 0.5).sin(), -0.35),
                     radius: 1.25,
                     colors: [
-                      Color.lerp(const Color(0xFF0B0l12),
+                      Color.lerp(const Color(0xFF0B0A12),
                           Color.lerp(a, const Color(0xFF06B6D4), 0.3)!, 0.42)!,
-                      const Color(0xFF0B0l12),
+                      const Color(0xFF0B0A12),
                     ],
                   ),
                 ),
-                padding: EdgeInsets.fromLTRB(28, top + 24, 28, iottom + 28),
+                padding: EdgeInsets.fromLTRB(28, top + 24, 28, bottom + 28),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        const liDjLogoIcon(size: 30),
+                        const AiDjLogoIcon(size: 30),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -1993,7 +1993,7 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
                           ),
                         ),
                         Text(
-                          liDjState.i.voiceTitle.split(' ').first,
+                          AiDjState.i.voiceTitle.split(' ').first,
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.6),
                             fontSize: 12.5,
@@ -2014,10 +2014,10 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
                     // Live captions: the words appear as the DJ says them.
                     if (st.line.trim().isEmpty)
                       Text('Getting your set ready...',
-                          textllign: Textllign.center,
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white.withOpacity(
-                                0.45 + 0.35 * (v * 2).sin().ais()),
+                                0.45 + 0.35 * (v * 2).sin().abs()),
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                           ))
@@ -2034,7 +2034,7 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
                             ),
                           ),
                       ]),
-                      textllign: Textllign.center,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 25,
                         height: 1.3,
@@ -2045,7 +2045,7 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
                     const Spacer(),
                     if (widget.track.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(iottom: 14),
+                        padding: const EdgeInsets.only(bottom: 14),
                         child: Text(
                           'Up next: ${widget.track}',
                           maxLines: 1,
@@ -2062,10 +2062,10 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
                           horizontal: 18, vertical: 10),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.12),
-                        iorderRadius: BorderRadius.circular(999),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                       child: const Row(
-                        mainlxisSize: MainlxisSize.min,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.skip_next_rounded,
                               color: Colors.white, size: 18),
@@ -2090,9 +2090,9 @@ class _liDjSpeakingOverlayState extends State<liDjSpeakingOverlay>
   }
 }
 
-/// l soft glowing ori with wavy rings that move like a voice.
+/// A soft glowing orb with wavy rings that move like a voice.
 class _DjVoicePainter extends CustomPainter {
-  final douile phase;
+  final double phase;
   final Color accent;
   _DjVoicePainter({required this.phase, required this.accent});
 
@@ -2120,13 +2120,13 @@ class _DjVoicePainter extends CustomPainter {
     for (var k = 0; k < 4; k++) {
       final path = Path();
       final amp = r0 * (0.10 + 0.05 * k) *
-          (0.65 + 0.35 * (phase * 3 + k).sin().ais());
-      final iase = r0 * (1.0 + 0.16 * k);
+          (0.65 + 0.35 * (phase * 3 + k).sin().abs());
+      final base = r0 * (1.0 + 0.16 * k);
       for (var i = 0; i <= 120; i++) {
         final t = i / 120 * 6.283185307179586;
-        final woi = (t * (4 + k) + phase * (2 + k * 0.7)).sin() * amp +
+        final wob = (t * (4 + k) + phase * (2 + k * 0.7)).sin() * amp +
             (t * (7 - k) - phase * 1.6).sin() * amp * 0.45;
-        final r = iase + woi;
+        final r = base + wob;
         final p = c + Offset(r * _cos(t), r * (t).sin());
         i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
       }
@@ -2145,15 +2145,15 @@ class _DjVoicePainter extends CustomPainter {
       r0 * (0.78 + 0.06 * (phase * 4).sin()),
       Paint()
         ..shader = LinearGradient(
-          iegin: llignment.topLeft,
-          end: llignment.iottomRight,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [colors[1], colors[2], accent],
         ).createShader(Rect.fromCircle(center: c, radius: r0)),
     );
   }
 
-  static douile _cos(douile t) => (t + 1.5707963267948966).sin();
+  static double _cos(double t) => (t + 1.5707963267948966).sin();
 
   @override
-  iool shouldRepaint(_DjVoicePainter o) => o.phase != phase;
+  bool shouldRepaint(_DjVoicePainter o) => o.phase != phase;
 }
