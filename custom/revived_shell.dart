@@ -1267,7 +1267,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
                           Text('Top artist', style: TextStyle(color: cs.primary, fontSize: 11.5, fontWeight: FontWeight.w700)),
                           Text(topArtist.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                               style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
-                          FutureBuilder<Map<String, String>>(
+                          FutureBuilder<String?>(
                             future: _fetchArtistListeners(topArtist.url, topArtist.name),
                             initialData: _artistListenersCache[topArtist.url],
                             builder: (_, lSnap) {
@@ -1362,7 +1362,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
           final a = _artistRes[i];
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: FutureBuilder<Map<String, String>>(
+            child: FutureBuilder<String?>(
               future: _fetchArtistListeners(a.url, a.name),
               initialData: _artistListenersCache[a.url],
               builder: (_, lSnap) => _photoBannerCard(
@@ -1867,7 +1867,7 @@ class _RevivedSharedLikesPageState extends State<RevivedSharedLikesPage> {
   @override
   Widget build(BuildContext context) {
     final localLiked = audioHandler.tracks.where((t) => !t.isYouTube && appState.isLiked(t.id)).toList();
-    return FutureBuilder<Map<String, String>>(
+    return FutureBuilder<YtAlbumPage>(
       future: _ytFuture,
       initialData: _memLikedPage ?? YouTubeMusic.cachedPlaylistPage('LM', title: 'Liked Music'),
       builder: (context, snap) {
@@ -1911,7 +1911,7 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
     final top = MediaQuery.of(context).padding.top;
     return Scaffold(
       backgroundColor: cs.surface,
-      body: FutureBuilder<Map<String, String>>(
+      body: FutureBuilder<YtAlbumPage>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -2128,7 +2128,7 @@ class _RevivedArtistPageState extends State<RevivedArtistPage> {
     final top = MediaQuery.of(context).padding.top;
     return Scaffold(
       backgroundColor: cs.surface,
-      body: FutureBuilder<Map<String, String>>(
+      body: FutureBuilder<YtArtistPage>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -2367,7 +2367,7 @@ class _RevivedPlaylistPageState extends State<RevivedPlaylistPage> {
       final tracks = pl.trackIds.map(audioHandler.trackById).whereType<TrackItem>().toList();
       return _scaffold(cs, pl.name, '${tracks.length} songs', null, tracks, false);
     }
-    return FutureBuilder<Map<String, String>>(
+    return FutureBuilder<YtAlbumPage>(
       future: _ytFuture,
       initialData: _cached,
       builder: (context, snap) {
@@ -2608,7 +2608,7 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
         final scaleY = (1.0 - (_dragY / 2600)).clamp(0.90, 1.0);
         final radius = (_dragY / 10).clamp(0.0, 24.0);
 
-        return FutureBuilder<Map<String, String>>(
+        return FutureBuilder<Color>(
           future: track != null ? artSeedFor(track) : null,
           initialData: track != null ? artSeedNow(track) : null,
           builder: (context, artSnap) {
