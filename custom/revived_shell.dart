@@ -300,8 +300,8 @@ Widget _coverArt(TrackItem track, {double? size}) {
   if (url != null && url.isNotEmpty) {
     return Image.network(
       url,
-      width: size,
-      height: size,
+      width: size ?? double.infinity,
+      height: size ?? double.infinity,
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => FittedBox(
         fit: BoxFit.cover,
@@ -1048,6 +1048,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
                     cs,
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 420),
+                      layoutBuilder: (cur, prev) => Stack(fit: StackFit.expand, children: [...prev, if (cur != null) cur]),
                       child: KeyedSubtree(
                         key: ValueKey(heroTrack?.id ?? 'none'),
                         child: heroTrack != null ? _coverArt(heroTrack) : ColoredBox(color: cs.surfaceContainerHigh),
@@ -2896,6 +2897,7 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
                   clipBehavior: Clip.antiAlias,
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 280),
+                    layoutBuilder: (cur, prev) => Stack(fit: StackFit.expand, children: [...prev, if (cur != null) cur]),
                     child: KeyedSubtree(key: ValueKey(track.id), child: _coverArt(track)),
                   ),
                 ),
