@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
@@ -272,6 +276,8 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
   void initState() {
     super.initState();
     _ytFeedFuture = YouTubeMusic.homeFeed();
+    appState.setB('update_check', true);
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkRevivedUpdate(context));
   }
 
   @override
@@ -2277,6 +2283,11 @@ class RevivedSettingsScreen extends StatelessWidget {
                 ),
                 ListTile(
                   leading: Icon(Icons.restart_alt_rounded, color: cs.onSurfaceVariant),
+                  title: Text('Check for Updates', style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600)),
+                  onTap: () => checkRevivedUpdate(context, manual: true),
+                ),
+                ListTile(
+                  leading: Icon(Icons.restart_alt_rounded, color: cs.onSurfaceVariant),
                   title: Text('Re-run Setup Screen', style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600)),
                   onTap: () {
                     HapticFeedback.mediumImpact();
@@ -2312,4 +2323,235 @@ class RevivedSettingsScreen extends StatelessWidget {
         child: Text(title,
             style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
       );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. FULL-SCREEN IN-APP UPDATE CHECKER & INSTALLER
+// ═════════════════════════════════════════════════════════════════════════════
+const String _kUpdateRepo = 'cashhwocky/AlexLMPRevived';
+const MethodChannel _kRevivedMediaCh = MethodChannel('com.alexlmp.app/media');
+
+Future<void> checkRevivedUpdate(BuildContext context, {bool manual = false}) async {
+  try {
+    final res = await http
+        .get(
+          Uri.parse('https://api.github.com/repos/$_kUpdateRepo/releases/latest'),
+          headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'AlexLMPRevived'},
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) {
+      if (manual && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No published releases found yet.')),
+        );
+      }
+      return;
+    }
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final tag = (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^[vV]'), '');
+    final notes = (data['body'] ?? 'Bug fixes, performance improvements, and UI updates.').toString().trim();
+    String? apkUrl;
+    for (final a in (data['assets'] as List? ?? const [])) {
+      if (a is Map && (a['name'] ?? '').toString().toLowerCase().endsWith('.apk')) {
+        apkUrl = a['browser_download_url']?.toString();
+        break;
+      }
+    }
+    if (tag.isEmpty || apkUrl == null) return;
+
+    final installed = appState.str('installed_revived_ver', '0.0.0');
+    if (!manual && tag == installed) return;
+    if (!context.mounted) return;
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: true,
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, __, ___) => RevivedUpdateScreen(
+          version: tag,
+          notes: notes,
+          apkUrl: apkUrl!,
+        ),
+        transitionsBuilder: (_, a, __, child) => FadeTransition(opacity: a, child: child),
+      ),
+    );
+  } catch (_) {
+    if (manual && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not check for updates right now.')),
+      );
+    }
+  }
+}
+
+class RevivedUpdateScreen extends StatefulWidget {
+  final String version;
+  final String notes;
+  final String apkUrl;
+
+  const RevivedUpdateScreen({
+    super.key,
+    required this.version,
+    required this.notes,
+    required this.apkUrl,
+  });
+
+  @override
+  State<RevivedUpdateScreen> createState() => _RevivedUpdateScreenState();
+}
+
+class _RevivedUpdateScreenState extends State<RevivedUpdateScreen> {
+  bool _downloading = false;
+  double _progress = 0;
+  String _status = '';
+
+  Future<void> _downloadAndInstall() async {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _downloading = true;
+      _progress = 0;
+      _status = 'Downloading AlexLMP Revived v${widget.version}…';
+    });
+    try {
+      final req = http.Request('GET', Uri.parse(widget.apkUrl));
+      final streamed = await req.send();
+      final total = streamed.contentLength ?? 0;
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/AlexLMPRevived-${widget.version}.apk');
+      final sink = file.openWrite();
+      int received = 0;
+      await for (final chunk in streamed.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0 && mounted) {
+          setState(() => _progress = (received / total).clamp(0.0, 1.0));
+        }
+      }
+      await sink.close();
+      if (!mounted) return;
+      setState(() => _status = 'Opening Android installer…');
+      appState.setStr('installed_revived_ver', widget.version);
+      await _kRevivedMediaCh.invokeMethod('installApk', {'path': file.path});
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _downloading = false;
+          _status = 'Update failed: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = _m3();
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(Icons.system_update_rounded, color: cs.onPrimaryContainer, size: 32),
+                  ),
+                  const Spacer(),
+                  if (!_downloading)
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'UPDATE AVAILABLE',
+                style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.4),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'AlexLMP Revived\nv${widget.version}',
+                style: TextStyle(
+                  color: cs.onSurface,
+                  fontSize: 36,
+                  height: 1.08,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1.1,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Text(
+                      widget.notes,
+                      style: TextStyle(color: cs.onSurfaceVariant, fontSize: 15, height: 1.45),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (_status.isNotEmpty) ...[
+                Text(_status, style: TextStyle(color: cs.primary, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+              ],
+              if (_downloading)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: _progress > 0 ? _progress : null,
+                    minHeight: 10,
+                    backgroundColor: cs.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: cs.primary,
+                          foregroundColor: cs.onPrimary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                        ),
+                        onPressed: _downloadAndInstall,
+                        child: const Text('Update Now', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text('Not Now', style: TextStyle(color: cs.onSurfaceVariant, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
