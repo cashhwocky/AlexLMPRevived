@@ -396,6 +396,14 @@ jobs:
           sed -i 's/new DefaultRenderersFactory(context).setEnableAudioOffload(true)/new DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON).setEnableAudioOffload(true)/' "$JA"
           grep -q "EXTENSION_RENDERER_MODE_ON));" "$JA" || { echo "::error::Couldn't enable the FFmpeg decoder in just_audio"; exit 1; }
           echo "FFmpeg decoder enabled in $JA"
+          python3 - << 'PYEOF'
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p, encoding="utf-8").read()
+          if 'android:name="flutterEmbedding"' not in s:
+              s = s.replace("</application>", '    <meta-data android:name="flutterEmbedding" android:value="2" />\n    </application>')
+              open(p, "w", encoding="utf-8").write(s)
+          print("Manifest flutterEmbedding check:", [l.strip() for l in s.splitlines() if "flutterEmbedding" in l])
+          PYEOF
           flutter build apk --release --verbose
 
       - name: Upload Artifact
