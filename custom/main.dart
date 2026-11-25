@@ -4328,7 +4328,7 @@ class AlexLmpApp extends StatelessWidget {
           },
           home: appState.b('setup_done')
               ? const AlexLmpRoot()
-              : const SetupScreen(),
+              : const RevivedSetupScreen(),
         );
       },
     );
@@ -4361,7 +4361,7 @@ void openPlayer(BuildContext context, {bool force = false}) {
       opaque: false,
       transitionDuration: const Duration(milliseconds: 600),
       reverseTransitionDuration: const Duration(milliseconds: 420),
-      pageBuilder: (_, __, ___) => const NowPlayingScreen(),
+      pageBuilder: (_, __, ___) => const RevivedPlayerScreen(),
       transitionsBuilder: (_, anim, __, child) {
         final curved = CurvedAnimation(
           parent: anim,
@@ -4562,7 +4562,7 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         final bottomInset = MediaQuery.of(context).padding.bottom;
         _dockOverlay = true;
 
-        if (appState.appStyle == 'revived') {
+        if (true) {
           return RevivedAppShell(tracks: tracks, aiChatBuilder: _aiPageStd);
         }
         if (appState.appStyle == 'bloom') {
