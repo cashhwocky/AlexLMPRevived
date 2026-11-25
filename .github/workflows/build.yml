@@ -290,40 +290,39 @@ jobs:
       - name: Apply AlexLMP Revived 4-Bar Icon
         run: |
           python3 - << 'PYEOF'
-          import os
           R = "app_build/android/app/src/main/res"
           HEAD = '<?xml version="1.0" encoding="utf-8"?>\n'
-          BG = HEAD + (
-              '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
-              'android:width="108dp" android:height="108dp" '
-              'android:viewportWidth="108" android:viewportHeight="108">'
-              '<path android:pathData="M0,0h108v108h-108z" android:fillColor="#0A0A0D"/>'
-              '</vector>\n'
-          )
-          FG = HEAD + (
-              '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
-              'android:width="108dp" android:height="108dp" '
-              'android:viewportWidth="108" android:viewportHeight="108">'
-              '<path android:pathData="M37,48 L37,60" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="#D4D4DC"/>'
-              '<path android:pathData="M48,39 L48,69" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="#FF2A5F"/>'
-              '<path android:pathData="M59,34 L59,74" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="#FFFFFF"/>'
-              '<path android:pathData="M70,45 L70,63" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="#FF2A5F"/>'
-              '</vector>\n'
-          )
-          MONO = HEAD + (
-              '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
-              'android:width="108dp" android:height="108dp" '
-              'android:viewportWidth="108" android:viewportHeight="108">'
-              '<path android:pathData="M37,48 L37,60 M48,39 L48,69 M59,34 L59,74 M70,45 L70,63" '
-              'android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="#FF000000"/>'
-              '</vector>\n'
-          )
-          for name in ("ic_launcher_background", "ic_alt_bloom_bg", "ic_alt_bitlmp_bg"):
-              open(f"{R}/drawable/{name}.xml", "w").write(BG)
-          for name in ("ic_launcher_foreground", "ic_alt_bloom_fg", "ic_alt_bitlmp_fg"):
-              open(f"{R}/drawable/{name}.xml", "w").write(FG)
-          open(f"{R}/drawable/ic_alt_mono.xml", "w").write(MONO)
-          print("Applied AlexLMP Revived 4-Bar Icon")
+          def make_bg(color):
+              return HEAD + (
+                  '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
+                  'android:width="108dp" android:height="108dp" '
+                  'android:viewportWidth="108" android:viewportHeight="108">'
+                  f'<path android:pathData="M0,0h108v108h-108z" android:fillColor="{color}"/>'
+                  '</vector>\n'
+              )
+          def make_fg(b1, b2, b3, b4):
+              return HEAD + (
+                  '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
+                  'android:width="108dp" android:height="108dp" '
+                  'android:viewportWidth="108" android:viewportHeight="108">'
+                  f'<path android:pathData="M37,48 L37,60" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="{b1}"/>'
+                  f'<path android:pathData="M48,39 L48,69" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="{b2}"/>'
+                  f'<path android:pathData="M59,34 L59,74" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="{b3}"/>'
+                  f'<path android:pathData="M70,45 L70,63" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="{b4}"/>'
+                  '</vector>\n'
+              )
+          # 1. Crimson (Default)
+          open(f"{R}/drawable/ic_launcher_background.xml", "w").write(make_bg("#0A0A0D"))
+          open(f"{R}/drawable/ic_launcher_foreground.xml", "w").write(make_fg("#D4D4DC", "#FF2A5F", "#FFFFFF", "#FF2A5F"))
+          # 2. Midnight (Blue accent — bloom alias)
+          open(f"{R}/drawable/ic_alt_bloom_bg.xml", "w").write(make_bg("#0B1020"))
+          open(f"{R}/drawable/ic_alt_bloom_fg.xml", "w").write(make_fg("#94A3B8", "#3B82F6", "#FFFFFF", "#3B82F6"))
+          # 3. Stealth (Monochrome — bitlmp alias)
+          open(f"{R}/drawable/ic_alt_bitlmp_bg.xml", "w").write(make_bg("#000000"))
+          open(f"{R}/drawable/ic_alt_bitlmp_fg.xml", "w").write(make_fg("#71717A", "#D4D4D8", "#FFFFFF", "#A1A1AA"))
+          # Monochrome themed icon
+          open(f"{R}/drawable/ic_alt_mono.xml", "w").write(make_fg("#FF000000", "#FF000000", "#FF000000", "#FF000000"))
+          print("Applied 3 selectable AlexLMP Revived 4-Bar Icons")
           PYEOF
 
       - name: Configure Gradle for Android SDK 35
