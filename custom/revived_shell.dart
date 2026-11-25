@@ -2702,8 +2702,27 @@ Future<void> checkRevivedUpdate(BuildContext context, {bool manual = false}) asy
         .firstWhere((u) => u != null && u.toLowerCase().endsWith('.apk'), orElse: () => null);
     if (tag.isEmpty || apkUrl == null) return;
 
-    final installed = appState.str('installed_revived_ver', '0.0.0');
-    if (!manual && tag == installed) return;
+    const builtRaw = String.fromEnvironment('APP_BUILD_VER', defaultValue: '0.0.0');
+    final installed = builtRaw.replaceFirst(RegExp(r'^[vV]'), '');
+    bool isNewer(String latest, String current) {
+      final a = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final b = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final len = max(a.length, b.length);
+      for (var i = 0; i < len; i++) {
+        final av = i < a.length ? a[i] : 0;
+        final bv = i < b.length ? b[i] : 0;
+        if (av != bv) return av > bv;
+      }
+      return false;
+    }
+    if (!isNewer(tag, installed)) {
+      if (manual && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You are already on the latest version (v$installed).')),
+        );
+      }
+      return;
+    }
     if (!context.mounted) return;
 
     Navigator.of(context).push(
