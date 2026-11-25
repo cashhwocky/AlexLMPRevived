@@ -22,6 +22,7 @@ import 'ai_features.dart';
 import 'ai_music_chat.dart';
 import 'tab_dock.dart';
 import 'tidal_style.dart';
+import 'revived_shell.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Globals
@@ -81,7 +82,7 @@ Future<void> main() async {
       builder: () => MyAudioHandler(),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.alexlmp.app.channel.audio',
-        androidNotificationChannelName: 'bitLMP Music Playback',
+        androidNotificationChannelName: 'AlexLMP Revived Playback',
         // Stay in the foreground while paused so the media session keeps
         // running: third-party controllers (crDroid's dynamic bar, custom
         // players) lose the session when Android puts the app to sleep.
@@ -617,6 +618,12 @@ class AppState extends ChangeNotifier {
     }
     if (prefs.getString('app_icon') == 'glass') {
       await prefs.setString('app_icon', 'bloom');
+    }
+    if (prefs.getBool('revived_default_v1') != true) {
+      await prefs.setString('app_style', 'revived');
+      await prefs.setString('theme_name', 'Crimson');
+      await prefs.setBool('pure_black', true);
+      await prefs.setBool('revived_default_v1', true);
     }
     if (prefs.getBool('tidal_default_v2') != true) {
       await prefs.setString('app_style', 'tidal');
@@ -4259,7 +4266,7 @@ class AlexLmpApp extends StatelessWidget {
         final textScale = appState.d('text_scale', 1.0);
         return MaterialApp(
           navigatorKey: appNavKey,
-          title: 'bitLMP',
+          title: 'AlexLMP Revived',
           debugShowCheckedModeBanner: false,
           themeMode: ThemeMode.dark,
           darkTheme: ThemeData(
@@ -4555,6 +4562,9 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         final bottomInset = MediaQuery.of(context).padding.bottom;
         _dockOverlay = true;
 
+        if (appState.appStyle == 'revived') {
+          return RevivedAppShell(tracks: tracks, aiChatBuilder: _aiPageStd);
+        }
         if (appState.appStyle == 'bloom') {
           return _bloomScaffold(context, pal, tracks);
         }

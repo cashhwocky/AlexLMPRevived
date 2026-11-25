@@ -57,7 +57,7 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
                     }
                 }
             }
-            notify(ctx, "bitLMP $latest is available", "Tap to update.", url, latest)
+            notify(ctx, "AlexLMP Revived $latest is available", "Tap to update.", url, latest)
             Result.success()
         } catch (_: Exception) {
             Result.retry()
@@ -67,7 +67,7 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
     }
 
     companion object {
-        private const val REPO = "cashhwocky/bitLMP"
+        private const val REPO = "cashhwocky/AlexLMPRevived"
         private const val WORK_NAME = "alexlmp_update_check"
         private const val KEY_NOTIFIED = "notified_version"
 
@@ -109,7 +109,7 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
                     android.app.NotificationChannel(
                         channelId, "App updates",
                         android.app.NotificationManager.IMPORTANCE_DEFAULT
-                    ).apply { description = "New bitLMP versions" }
+                    ).apply { description = "New AlexLMP Revived versions" }
                 )
             }
             // Opens bitLMP, which downloads and installs the update itself.
@@ -177,7 +177,7 @@ object SelfUpdater {
         val id = installer.createSession(params)
         installer.openSession(id).use { session ->
             file.inputStream().use { input ->
-                session.openWrite("bitLMP.apk", 0, file.length()).use { out ->
+                session.openWrite("AlexLMPRevived.apk", 0, file.length()).use { out ->
                     input.copyTo(out, 1 shl 16)
                     session.fsync(out)
                 }
@@ -217,7 +217,7 @@ class UpdateInstallReceiver : android.content.BroadcastReceiver() {
                     android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE
                 ) ?: "status $status"
                 android.widget.Toast.makeText(
-                    ctx, "bitLMP update didn't install: $msg", android.widget.Toast.LENGTH_LONG
+                    ctx, "AlexLMP Revived update didn't install: $msg", android.widget.Toast.LENGTH_LONG
                 ).show()
             }
         }
