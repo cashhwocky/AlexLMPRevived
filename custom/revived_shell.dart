@@ -28,6 +28,48 @@ ColorScheme _m3() {
   return base;
 }
 
+
+/// Computes a rich, readable solid tonal background color matched to the album art
+Color _tonalBgColor(Color seed) {
+  final hsl = HSLColor.fromColor(seed);
+  final sat = hsl.saturation < 0.08 ? 0.06 : hsl.saturation.clamp(0.24, 0.50);
+  final light = hsl.lightness.clamp(0.24, 0.38);
+  return hsl.withSaturation(sat).withLightness(light).toColor();
+}
+
+/// Vertical white pill thumb for the Tonal Player seek bar
+class _TonalPillThumbShape extends SliderComponentShape {
+  const _TonalPillThumbShape();
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) => const Size(6, 18);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: 6, height: 18),
+      const Radius.circular(3),
+    );
+    context.canvas.drawRRect(rrect, paint);
+  }
+}
+
 const Color _kBrandCrimson = Color(0xFFFF2A5F);
 
 /// Instant in-memory cache for Liked Music so it opens immediately
@@ -559,7 +601,7 @@ class RevivedSetupScreen extends StatefulWidget {
 
 class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
   final PageController _pageCtrl = PageController();
-  int _step = 0;
+  int _step = 0; // 0=Permissions, 1=Player Style, 2=Sign In
   bool _storageOk = false;
   bool _signingIn = false;
 
@@ -571,7 +613,7 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
 
   void _next() {
     HapticFeedback.selectionClick();
-    if (_step < 1) {
+    if (_step < 2) {
       setState(() => _step++);
       _pageCtrl.animateToPage(_step, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
     }
@@ -615,49 +657,58 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = _m3();
-    return Scaffold(
-      backgroundColor: cs.surface,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 16, 22, 8),
-              child: Row(
-                children: [
-                  if (_step > 0)
-                    IconButton(
-                      icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface),
-                      onPressed: _back,
-                    )
-                  else
-                    const RevivedBrandMark(size: 36),
-                  const SizedBox(width: 14),
-                  for (var i = 0; i < 2; i++)
-                    Expanded(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 240),
-                        height: 4,
-                        margin: EdgeInsets.only(right: i < 1 ? 8 : 0),
-                        decoration: BoxDecoration(
-                          color: i <= _step ? cs.primary : cs.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(99),
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) {
+        final cs = _m3();
+        return Scaffold(
+          backgroundColor: cs.surface,
+          body: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 16, 22, 8),
+                  child: Row(
+                    children: [
+                      if (_step > 0)
+                        IconButton(
+                          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface),
+                          onPressed: _back,
+                        )
+                      else
+                        const RevivedBrandMark(size: 36),
+                      const SizedBox(width: 14),
+                      for (var i = 0; i < 3; i++)
+                        Expanded(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 240),
+                            height: 4,
+                            margin: EdgeInsets.only(right: i < 2 ? 8 : 0),
+                            decoration: BoxDecoration(
+                              color: i <= _step ? cs.primary : cs.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: PageView(
+                    controller: _pageCtrl,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [
+                      _buildPermissionsStep(cs),
+                      _buildPlayerStyleStep(cs),
+                      _buildSignInStep(cs),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: PageView(
-                controller: _pageCtrl,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [_buildPermissionsStep(cs), _buildSignInStep(cs)],
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -667,7 +718,7 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 1 of 2', style: TextStyle(color: cs.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+          Text('Step 1 of 3', style: TextStyle(color: cs.primary, fontSize: 13, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           Text('Music & notifications',
               style: TextStyle(color: cs.onSurface, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.6)),
@@ -725,6 +776,107 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
     );
   }
 
+  Widget _buildPlayerStyleStep(ColorScheme cs) {
+    final style = appState.str('revived_player_style', 'classic');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Step 2 of 3', style: TextStyle(color: cs.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('Choose your player',
+              style: TextStyle(color: cs.onSurface, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.6)),
+          const SizedBox(height: 8),
+          Text('Pick how your Now playing screen looks. You can switch anytime in Settings.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 15, height: 1.4)),
+          const SizedBox(height: 24),
+          _playerStyleOption(
+            cs: cs,
+            title: 'Classic',
+            subtitle: 'Dark minimal layout with circular play button and full bottom utility bar',
+            selected: style == 'classic',
+            previewBg: const Color(0xFF1A1A1D),
+            previewAccent: Colors.white,
+            onTap: () => appState.setStr('revived_player_style', 'classic'),
+          ),
+          const SizedBox(height: 12),
+          _playerStyleOption(
+            cs: cs,
+            title: 'Tonal Player',
+            subtitle: 'Solid color matched to album art, vertical pill scrubber, and clean open controls',
+            selected: style == 'tonal',
+            previewBg: const Color(0xFF664B80),
+            previewAccent: Colors.white,
+            onTap: () => appState.setStr('revived_player_style', 'tonal'),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              ),
+              onPressed: _next,
+              child: const Text('Next', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _playerStyleOption({
+    required ColorScheme cs,
+    required String title,
+    required String subtitle,
+    required bool selected,
+    required Color previewBg,
+    required Color previewAccent,
+    required VoidCallback onTap,
+  }) =>
+      GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected ? cs.primaryContainer : cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(color: previewBg, borderRadius: BorderRadius.circular(14)),
+                child: Icon(Icons.play_arrow_rounded, color: previewAccent, size: 28),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: TextStyle(color: selected ? cs.onPrimaryContainer : cs.onSurface, fontSize: 16, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 3),
+                    Text(subtitle,
+                        style: TextStyle(color: selected ? cs.onPrimaryContainer.withOpacity(0.8) : cs.onSurfaceVariant, fontSize: 12.5, height: 1.3)),
+                  ],
+                ),
+              ),
+              Icon(selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  color: selected ? cs.onPrimaryContainer : cs.onSurfaceVariant),
+            ],
+          ),
+        ),
+      );
+
   Widget _buildSignInStep(ColorScheme cs) {
     return ValueListenableBuilder<YtAccount>(
       valueListenable: ytAccount,
@@ -735,7 +887,7 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Step 2 of 2', style: TextStyle(color: cs.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+              Text('Step 3 of 3', style: TextStyle(color: cs.primary, fontSize: 13, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               Text('Sign in to YouTube Music',
                   style: TextStyle(color: cs.onSurface, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.6)),
@@ -2777,7 +2929,9 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
           future: track != null ? artSeedFor(track) : null,
           initialData: track != null ? artSeedNow(track) : null,
           builder: (context, artSnap) {
-            final artTint = artSnap.data ?? const Color(0xFF282828);
+            final artTint = artSnap.data ?? const Color(0xFF664B80);
+            final isTonal = appState.str('revived_player_style', 'classic') == 'tonal';
+            final tonalBg = _tonalBgColor(artTint);
             final bgColors = [Color.lerp(const Color(0xFF1F1E1C), artTint, 0.14)!, const Color(0xFF0D0D0E)];
 
             return Scaffold(
@@ -2786,21 +2940,24 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
                 onVerticalDragUpdate: _onVertUpdate,
                 onVerticalDragEnd: _onVertEnd,
                 child: AnimatedContainer(
-                  duration: Duration(milliseconds: _draggingY ? 0 : 240),
+                  duration: Duration(milliseconds: _draggingY ? 0 : 260),
                   curve: Curves.easeOutCubic,
                   transform: Matrix4.identity()..translate(0.0, _dragY)..scale(scaleY, scaleY),
                   transformAlignment: Alignment.center,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(radius),
-                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: bgColors),
+                    color: isTonal ? tonalBg : null,
+                    gradient: isTonal ? null : LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: bgColors),
                   ),
                   child: track == null
                       ? const Center(child: Text('Nothing playing', style: TextStyle(color: Colors.white60)))
-                      : SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(22, 8, 22, 16),
-                            child: Column(
+                      : isTonal
+                          ? _buildTonalPlayer(context, cs, track)
+                          : SafeArea(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(22, 8, 22, 16),
+                                child: Column(
                               children: [
                                 Row(
                                   children: [
@@ -3188,6 +3345,29 @@ class RevivedSettingsScreen extends StatelessWidget {
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
             children: [
+              _section(cs, 'Player style'),
+              Row(
+                children: [
+                  Expanded(
+                    child: _styleTile(
+                      cs,
+                      'Classic',
+                      appState.str('revived_player_style', 'classic') == 'classic',
+                      () => appState.setStr('revived_player_style', 'classic'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _styleTile(
+                      cs,
+                      'Tonal Player',
+                      appState.str('revived_player_style', 'classic') == 'tonal',
+                      () => appState.setStr('revived_player_style', 'tonal'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
               _section(cs, 'Tools & library'),
               _card(cs, [
                 ListTile(
@@ -3339,6 +3519,30 @@ class RevivedSettingsScreen extends StatelessWidget {
       },
     );
   }
+
+  Widget _styleTile(ColorScheme cs, String label, bool selected, VoidCallback onTap) => GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? cs.primaryContainer : cs.surfaceContainer,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      );
 
   Widget _section(ColorScheme cs, String title) => Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
