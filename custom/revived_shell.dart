@@ -3032,6 +3032,260 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
     );
   }
 
+
+  /// Tonal Player — Solid album-art matched background, pill scrubber & open controls
+  Widget _buildTonalPlayer(BuildContext context, ColorScheme cs, TrackItem track) {
+    final qualityLabel = track.isYouTube ? 'HIGH QUALITY AUDIO' : '16-BIT 44.1kHz LOSSLESS';
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 10, 22, 16),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(context).pop();
+                  },
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white12),
+                    child: _coverArt(track, size: 42),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    showPlaybackSheet(context);
+                  },
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.12), shape: BoxShape.circle),
+                    child: const Icon(Icons.speaker_outlined, color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            _swipeableArt(track, 4),
+            const Spacer(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      GestureDetector(
+                        onTap: () => revivedGoToAlbum(context, track),
+                        child: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      GestureDetector(
+                        onTap: () => revivedGoToArtist(context, track),
+                        child: Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.white.withOpacity(0.68), fontSize: 15, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _likeBtn(track, Colors.white),
+                IconButton(
+                  icon: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    track.isYouTube ? showYtAddToPlaylist(context, track) : showAddToPlaylistSheet(context, track);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            StreamBuilder<Duration>(
+              stream: audioHandler.player.positionStream,
+              builder: (context, snap) {
+                final pos = snap.data ?? Duration.zero;
+                final dur = audioHandler.player.duration ?? Duration(seconds: track.durationSeconds);
+                final maxMs = max(1, dur.inMilliseconds).toDouble();
+                final curMs = pos.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+                return Column(
+                  children: [
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3.0,
+                        thumbShape: const _TonalPillThumbShape(),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                        activeTrackColor: Colors.white,
+                        inactiveTrackColor: Colors.white.withOpacity(0.24),
+                        thumbColor: Colors.white,
+                      ),
+                      child: Slider(value: curMs, max: maxMs, onChanged: (v) => audioHandler.seek(Duration(milliseconds: v.round()))),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(formatDuration(pos), style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 11.5, fontWeight: FontWeight.w500)),
+                          Text(qualityLabel, style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.4)),
+                          Text(formatDuration(dur), style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 11.5, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            StreamBuilder<PlaybackState>(
+              stream: audioHandler.playbackState,
+              builder: (context, snap) {
+                final st = snap.data ?? audioHandler.playbackState.value;
+                final playing = st.playing;
+                final shuf = st.shuffleMode == AudioServiceShuffleMode.all;
+                final rep = st.repeatMode;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.shuffle_rounded, color: shuf ? Colors.white : Colors.white.withOpacity(0.55), size: 23),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        audioHandler.setShuffleMode(shuf ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all);
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 36),
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        audioHandler.skipToPrevious();
+                      },
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        playing ? audioHandler.pause() : audioHandler.play();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (c, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: c)),
+                          child: Icon(
+                            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            key: ValueKey(playing),
+                            color: Colors.white,
+                            size: 54,
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 36),
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        audioHandler.skipToNext();
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        rep == AudioServiceRepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                        color: rep == AudioServiceRepeatMode.none ? Colors.white.withOpacity(0.55) : Colors.white,
+                        size: 23,
+                      ),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        final next = rep == AudioServiceRepeatMode.none
+                            ? AudioServiceRepeatMode.all
+                            : (rep == AudioServiceRepeatMode.all ? AudioServiceRepeatMode.one : AudioServiceRepeatMode.none);
+                        audioHandler.setRepeatMode(next);
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    _showProQueueSheet(context, cs);
+                  },
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.12), shape: BoxShape.circle),
+                    child: const Icon(Icons.notes_rounded, color: Colors.white, size: 22),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => showLyricsSheet(context, track),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Playing from', style: TextStyle(color: Colors.white.withOpacity(0.58), fontSize: 11.5, fontWeight: FontWeight.w500)),
+                        Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    shareTrack(track);
+                  },
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.12), shape: BoxShape.circle),
+                    child: const Icon(Icons.share_outlined, color: Colors.white, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    showRevivedTrackMenu(context, track);
+                  },
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.12), shape: BoxShape.circle),
+                    child: const Icon(Icons.more_horiz_rounded, color: Colors.white, size: 22),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _swipeableArt(TrackItem track, double radius) => GestureDetector(
         onDoubleTap: () => _doubleTapLike(track),
         onHorizontalDragUpdate: _onHorizUpdate,
