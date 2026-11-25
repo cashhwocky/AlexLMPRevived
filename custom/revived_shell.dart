@@ -11,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'main.dart';
 
-// ── Clean Dark Spotify-Like Palette (No Material You, No Kinetic) ────────────
+// ── Clean Dark Spotify-Like Palette ──────────────────────────────────────────
 const Color _kBg = Color(0xFF121212);
 const Color _kBgPure = Color(0xFF000000);
 const Color _kCard = Color(0xFF1E1E1E);
@@ -23,7 +23,80 @@ const Color _kAccent = Color(0xFFFF2A5F);
 const Color _kTidalCyan = Color(0xFF00FFFF);
 
 Color get _bg => appState.b('pure_black_dark', false) ? _kBgPure : _kBg;
-String get _playerStyle => appState.str('revived_player_style', 'classic'); // 'classic' | 'tidal'
+
+String get _playerStyle {
+  final raw = appState.str('revived_player_style', 'classic');
+  return raw == 'tidal' ? 'tidal' : 'classic';
+}
+
+/// Instant in-memory cache for Liked Music so it opens immediately
+YtAlbumPage? _memLikedPage;
+
+/// Custom navigation helpers so tapping Artist / Album NEVER opens old bitLMP UI
+Future<void> revivedGoToArtist(BuildContext context, TrackItem t) async {
+  HapticFeedback.selectionClick();
+  if (!t.isYouTube) {
+    final local = audioHandler.tracks.where((x) => !x.isYouTube && x.artist == t.artist).toList();
+    if (local.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RevivedPlaylistPage.custom(title: t.artist, subtitle: 'Artist', tracks: local),
+      ));
+    }
+    return;
+  }
+  try {
+    final links = await YouTubeMusic.trackLinks(t.ytVideoId!);
+    if (!context.mounted) return;
+    if (links.artistUrl != null && links.artistUrl!.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RevivedArtistPage(url: links.artistUrl!, name: links.artistName ?? t.artist),
+      ));
+      return;
+    }
+    final found = await YouTubeMusic.searchArtists(t.artist);
+    if (!context.mounted) return;
+    if (found.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RevivedArtistPage(url: found.first.url, name: found.first.name, initialThumb: found.first.thumbnail),
+      ));
+      return;
+    }
+  } catch (_) {}
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open artist page')));
+  }
+}
+
+Future<void> revivedGoToAlbum(BuildContext context, TrackItem t) async {
+  HapticFeedback.selectionClick();
+  if (!t.isYouTube) {
+    final local = audioHandler.tracks.where((x) => !x.isYouTube && x.album == t.album).toList();
+    if (local.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RevivedPlaylistPage.custom(title: t.album, subtitle: t.artist, tracks: local),
+      ));
+    }
+    return;
+  }
+  try {
+    final links = await YouTubeMusic.trackLinks(t.ytVideoId!);
+    if (!context.mounted) return;
+    final ref = links.albumBrowseId ?? links.albumUrl;
+    if (ref != null && ref.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RevivedAlbumPage(
+          url: ref,
+          initialTitle: links.albumTitle ?? t.album,
+          initialThumb: links.albumThumbnail ?? t.artworkUrl,
+        ),
+      ));
+      return;
+    }
+  } catch (_) {}
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No album found for this track')));
+  }
+}
 
 /// The 4-bar AlexLMP Revived brand icon widget
 class RevivedBrandMark extends StatelessWidget {
@@ -65,7 +138,7 @@ class RevivedBrandMark extends StatelessWidget {
       );
 }
 
-/// Pro Track Context Menu (Long-press or 3-dots on any track)
+/// Pro Track Context Menu
 void showRevivedTrackMenu(BuildContext context, TrackItem track) {
   HapticFeedback.lightImpact();
   showModalBottomSheet<void>(
@@ -136,11 +209,11 @@ void showRevivedTrackMenu(BuildContext context, TrackItem track) {
             }),
             _menuItem(Icons.person_outline_rounded, 'Go to artist', () {
               Navigator.pop(ctx);
-              goToArtist(context, track);
+              revivedGoToArtist(context, track);
             }),
             _menuItem(Icons.album_outlined, 'Go to album', () {
               Navigator.pop(ctx);
-              goToAlbum(context, track);
+              revivedGoToAlbum(context, track);
             }),
             _menuItem(Icons.share_rounded, 'Share', () {
               Navigator.pop(ctx);
@@ -172,7 +245,7 @@ Widget _menuItem(IconData icon, String title, VoidCallback onTap) => ListTile(
     );
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 1. 3-SCREEN SETUP WIZARD (Permissions -> Player Style ONLY -> Sign In)
+// 1. 3-SCREEN SETUP WIZARD (Permissions -> Player Styles ONLY -> Sign In)
 // ═════════════════════════════════════════════════════════════════════════════
 class RevivedSetupScreen extends StatefulWidget {
   const RevivedSetupScreen({super.key});
@@ -182,9 +255,18 @@ class RevivedSetupScreen extends StatefulWidget {
 
 class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
   final PageController _pageCtrl = PageController();
-  int _step = 0; // 0 = Permissions, 1 = Player Style, 2 = Sign In
+  int _step = 0;
   bool _storageOk = false;
   bool _signingIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure Classic is defaulted right away
+    if (appState.str('revived_player_style', 'classic') != 'tidal') {
+      appState.setStr('revived_player_style', 'classic');
+    }
+  }
 
   @override
   void dispose() {
@@ -526,7 +608,7 @@ class _RevivedSetupScreenState extends State<RevivedSetupScreen> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 2. SPOTIFY-LIKE MAIN APP SHELL (Home, Search, Library + All Pro Features)
+// 2. SPOTIFY-LIKE MAIN APP SHELL (Home, Search, Library)
 // ═════════════════════════════════════════════════════════════════════════════
 class RevivedAppShell extends StatefulWidget {
   final List<TrackItem> tracks;
@@ -557,10 +639,24 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
   @override
   void initState() {
     super.initState();
+    // Normalize player style so Classic is defaulted and highlighted
+    if (appState.str('revived_player_style', 'classic') != 'tidal') {
+      appState.setStr('revived_player_style', 'classic');
+    }
     _ytFeedFuture = YouTubeMusic.homeFeed();
     _ytPlFuture = YouTubeMusic.libraryPlaylists();
+    // Preload Liked Music in background so tapping "Liked songs" opens immediately
+    _preloadLikedMusic();
     appState.setB('update_check', true);
     WidgetsBinding.instance.addPostFrameCallback((_) => checkRevivedUpdate(context));
+  }
+
+  Future<void> _preloadLikedMusic() async {
+    _memLikedPage ??= YouTubeMusic.cachedPlaylistPage('LM', title: 'Liked Music');
+    try {
+      final fresh = await YouTubeMusic.playlistPage('LM', title: 'Liked Music');
+      _memLikedPage = fresh;
+    } catch (_) {}
   }
 
   @override
@@ -704,7 +800,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
     );
   }
 
-  // ── SPOTIFY-STYLE HOME ────────────────────────────────────────────────────
+  // ── POLISHED SPOTIFY-STYLE HOME (Zero awkward gap) ────────────────────────
   Widget _buildHome(BuildContext context) {
     final yt = appState.homeMode == 'youtube';
     final local = widget.tracks.where((t) => !t.isYouTube).toList();
@@ -717,6 +813,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
       onRefresh: () async {
         HapticFeedback.lightImpact();
         setState(() => _ytFeedFuture = YouTubeMusic.homeFeed(refresh: true));
+        _preloadLikedMusic();
         await _ytFeedFuture;
       },
       child: ListView(
@@ -732,23 +829,29 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
               _filterPill('On device', !yt, () => appState.setStr('home_mode', 'local')),
               const Spacer(),
               IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 22),
                 onPressed: () => openListeningStats(context),
               ),
               IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
                 onPressed: () => openRevivedSettings(context),
               ),
             ],
           ),
           const SizedBox(height: 16),
+          // Fixed: padding: EdgeInsets.zero eliminates the big gap above the grid!
           GridView.count(
+            padding: EdgeInsets.zero,
             crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
-            childAspectRatio: 3.0,
+            childAspectRatio: 3.1,
             children: [
               _compactGridTile(
                 title: 'Liked songs',
@@ -756,7 +859,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(colors: [Color(0xFF450AF5), Color(0xFFC4EFD9)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                   ),
-                  child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 22),
+                  child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 21),
                 ),
                 onTap: () => yt
                     ? Navigator.of(context).push(MaterialPageRoute(
@@ -769,17 +872,17 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
               ),
               _compactGridTile(
                 title: 'Downloads',
-                cover: Container(color: const Color(0xFF1E3A5F), child: const Icon(Icons.download_done_rounded, color: Colors.white, size: 22)),
+                cover: Container(color: const Color(0xFF1E3A5F), child: const Icon(Icons.download_done_rounded, color: Colors.white, size: 21)),
                 onTap: () => openDownloads(context),
               ),
               _compactGridTile(
                 title: 'Shuffle all',
-                cover: Container(color: const Color(0xFF1F4E3D), child: const Icon(Icons.shuffle_rounded, color: Colors.white, size: 22)),
+                cover: Container(color: const Color(0xFF1F4E3D), child: const Icon(Icons.shuffle_rounded, color: Colors.white, size: 21)),
                 onTap: () => _shuffleAll(yt ? widget.tracks : local),
               ),
               _compactGridTile(
                 title: 'Shared likes',
-                cover: Container(color: const Color(0xFF4A2545), child: const Icon(Icons.favorite_border_rounded, color: Colors.white, size: 22)),
+                cover: Container(color: const Color(0xFF4A2545), child: const Icon(Icons.favorite_border_rounded, color: Colors.white, size: 21)),
                 onTap: () => openSharedLikes(context),
               ),
               for (final r in recent.take(2))
@@ -791,7 +894,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
             ],
           ),
           if (recent.isNotEmpty) ...[
-            const SizedBox(height: 24),
+            const SizedBox(height: 22),
             const Text('Jump back in', style: TextStyle(color: _kText, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
             const SizedBox(height: 12),
             SizedBox(
@@ -902,7 +1005,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
           decoration: BoxDecoration(color: _kCardHigh, borderRadius: BorderRadius.circular(6)),
           child: Row(
             children: [
-              SizedBox(width: 56, height: double.infinity, child: cover),
+              SizedBox(width: 54, height: double.infinity, child: cover),
               const SizedBox(width: 10),
               Expanded(
                 child: Padding(
@@ -1344,7 +1447,6 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
     );
   }
 
-  // ── SPOTIFY-STYLE MINI PLAYER & BOTTOM NAV ────────────────────────────────
   Widget _buildMiniPlayer(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: audioHandler.currentIndex,
@@ -1596,7 +1698,7 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. SPOTIFY-STYLE ALBUM / SINGLE PAGE, ARTIST PAGE, AND PLAYLIST PAGE
+// 3. SEAMLESS SPOTIFY-STYLE ALBUM, ARTIST, AND PLAYLIST PAGES
 // ═════════════════════════════════════════════════════════════════════════════
 class RevivedAlbumPage extends StatefulWidget {
   final String url;
@@ -1617,6 +1719,7 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
 
   @override
   Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
     return Scaffold(
       backgroundColor: _bg,
       body: FutureBuilder<YtAlbumPage>(
@@ -1633,36 +1736,45 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
           return CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              SliverAppBar(
-                backgroundColor: _bg,
-                elevation: 0,
-                pinned: true,
-                iconTheme: const IconThemeData(color: Colors.white),
-                title: Text(page.title, style: const TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w700)),
-              ),
               SliverToBoxAdapter(
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [const Color(0xFF2B2B2B), _bg],
+                      colors: [const Color(0xFF333338), _bg],
                     ),
                   ),
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+                  padding: EdgeInsets.fromLTRB(18, top + 8, 18, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 26),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      const SizedBox(height: 12),
                       Center(
                         child: Container(
                           decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.55), blurRadius: 28, offset: const Offset(0, 12))]),
-                          child: ClipRRect(borderRadius: BorderRadius.circular(6), child: YtNetworkImage(url: page.thumbnail ?? widget.initialThumb, size: 224)),
+                          child: ClipRRect(borderRadius: BorderRadius.circular(8), child: YtNetworkImage(url: page.thumbnail ?? widget.initialThumb, size: 224)),
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 20),
                       Text(page.title, style: const TextStyle(color: _kText, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
                       const SizedBox(height: 6),
-                      Text(page.artist, style: const TextStyle(color: _kText, fontSize: 14, fontWeight: FontWeight.w700)),
+                      GestureDetector(
+                        onTap: () {
+                          if (page.artistUrl != null) {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => RevivedArtistPage(url: page.artistUrl!, name: page.artist),
+                            ));
+                          }
+                        },
+                        child: Text(page.artist, style: const TextStyle(color: _kText, fontSize: 14.5, fontWeight: FontWeight.w700)),
+                      ),
                       const SizedBox(height: 3),
                       Text('$typeLabel${page.year != null ? " • ${page.year}" : ""} • ${page.tracks.length} ${page.tracks.length == 1 ? "song" : "songs"}',
                           style: const TextStyle(color: _kSub, fontSize: 13)),
@@ -1767,6 +1879,7 @@ class _RevivedArtistPageState extends State<RevivedArtistPage> {
                 expandedHeight: 260,
                 pinned: true,
                 backgroundColor: _bg,
+                surfaceTintColor: Colors.transparent,
                 iconTheme: const IconThemeData(color: Colors.white),
                 flexibleSpace: FlexibleSpaceBar(
                   titlePadding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
@@ -1908,13 +2021,18 @@ class RevivedPlaylistPage extends StatefulWidget {
   final Playlist? localPlaylist;
   final String? ytPlaylistId;
   final String? title;
+  final String? subtitle;
   final String? thumbnail;
+  final List<TrackItem>? customTracks;
 
   const RevivedPlaylistPage.local({super.key, required Playlist playlist})
-      : localPlaylist = playlist, ytPlaylistId = null, title = null, thumbnail = null;
+      : localPlaylist = playlist, ytPlaylistId = null, title = null, subtitle = null, thumbnail = null, customTracks = null;
 
   const RevivedPlaylistPage.youtube({super.key, required String playlistId, this.title, this.thumbnail})
-      : localPlaylist = null, ytPlaylistId = playlistId;
+      : localPlaylist = null, ytPlaylistId = playlistId, subtitle = null, customTracks = null;
+
+  const RevivedPlaylistPage.custom({super.key, required this.title, this.subtitle, required List<TrackItem> tracks})
+      : localPlaylist = null, ytPlaylistId = null, thumbnail = null, customTracks = tracks;
 
   @override
   State<RevivedPlaylistPage> createState() => _RevivedPlaylistPageState();
@@ -1928,13 +2046,23 @@ class _RevivedPlaylistPageState extends State<RevivedPlaylistPage> {
   void initState() {
     super.initState();
     if (widget.ytPlaylistId != null) {
-      _cached = YouTubeMusic.cachedPlaylistPage(widget.ytPlaylistId!, title: widget.title, thumbnail: widget.thumbnail);
-      _ytFuture = YouTubeMusic.playlistPage(widget.ytPlaylistId!, title: widget.title, thumbnail: widget.thumbnail);
+      if (widget.ytPlaylistId == 'LM' && _memLikedPage != null) {
+        _cached = _memLikedPage;
+      } else {
+        _cached = YouTubeMusic.cachedPlaylistPage(widget.ytPlaylistId!, title: widget.title, thumbnail: widget.thumbnail);
+      }
+      _ytFuture = YouTubeMusic.playlistPage(widget.ytPlaylistId!, title: widget.title, thumbnail: widget.thumbnail).then((p) {
+        if (widget.ytPlaylistId == 'LM') _memLikedPage = p;
+        return p;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.customTracks != null) {
+      return _scaffold(widget.title ?? 'Playlist', widget.subtitle ?? '${widget.customTracks!.length} songs', null, widget.customTracks!, false);
+    }
     if (widget.localPlaylist != null) {
       final pl = widget.localPlaylist!;
       final tracks = pl.trackIds.map(audioHandler.trackById).whereType<TrackItem>().toList();
@@ -1945,60 +2073,72 @@ class _RevivedPlaylistPageState extends State<RevivedPlaylistPage> {
       initialData: _cached,
       builder: (context, snap) {
         final page = snap.data;
-        final refreshing = snap.connectionState == ConnectionState.waiting;
         if (page == null) {
           return Scaffold(
             backgroundColor: _bg,
             appBar: AppBar(backgroundColor: _bg, elevation: 0, iconTheme: const IconThemeData(color: Colors.white)),
-            body: Center(child: refreshing ? const CircularProgressIndicator(color: Colors.white) : const Text('Could not load playlist', style: TextStyle(color: _kSub))),
+            body: Center(
+              child: snap.connectionState == ConnectionState.waiting
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Could not load playlist', style: TextStyle(color: _kSub)),
+            ),
           );
         }
-        return _scaffold(page.title, '${page.tracks.length} songs', page.thumbnail ?? widget.thumbnail, page.tracks, refreshing);
+        final isLiked = widget.ytPlaylistId == 'LM';
+        return _scaffold(page.title, '${page.tracks.length} songs', isLiked ? null : (page.thumbnail ?? widget.thumbnail), page.tracks, isLiked);
       },
     );
   }
 
-  Widget _scaffold(String name, String sub, String? thumb, List<TrackItem> tracks, bool refreshing) {
+  Widget _scaffold(String name, String sub, String? thumb, List<TrackItem> tracks, bool isLiked) {
+    final top = MediaQuery.of(context).padding.top;
+    final gradTop = isLiked ? const Color(0xFF332169) : const Color(0xFF323236);
     return Scaffold(
       backgroundColor: _bg,
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
-          SliverAppBar(
-            backgroundColor: _bg,
-            elevation: 0,
-            pinned: true,
-            iconTheme: const IconThemeData(color: Colors.white),
-            title: Text(name, style: const TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w700)),
-            actions: [
-              if (refreshing)
-                const Padding(padding: EdgeInsets.only(right: 16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))),
-            ],
-          ),
+          // Seamless top gradient starting behind status bar (zero harsh seam or stray dot!)
           SliverToBoxAdapter(
             child: Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [const Color(0xFF282828), _bg]),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [gradTop, _bg],
+                ),
               ),
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+              padding: EdgeInsets.fromLTRB(18, top + 8, 18, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 26),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(height: 12),
                   Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: thumb != null
-                          ? YtNetworkImage(url: thumb, size: 210)
-                          : Container(
-                              width: 210,
-                              height: 210,
-                              decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF450AF5), Color(0xFFC4EFD9)])),
-                              child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 64),
-                            ),
+                    child: Container(
+                      decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 26, offset: const Offset(0, 12))]),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: thumb != null
+                            ? YtNetworkImage(url: thumb, size: 204)
+                            : Container(
+                                width: 204,
+                                height: 204,
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(colors: [Color(0xFF450AF5), Color(0xFFC4EFD9)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                                ),
+                                child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 72),
+                              ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  Text(name, style: const TextStyle(color: _kText, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                  const SizedBox(height: 20),
+                  Text(name, style: const TextStyle(color: _kText, fontSize: 25, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
                   const SizedBox(height: 4),
                   Text('Playlist • $sub', style: const TextStyle(color: _kSub, fontSize: 13)),
                   const SizedBox(height: 12),
@@ -2061,7 +2201,7 @@ class _RevivedPlaylistPageState extends State<RevivedPlaylistPage> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. DUAL PLAYER SCREEN (Classic & Tidal — Swipe Down, Carousel, Double-Tap Like)
+// 4. DUAL PLAYER SCREEN (Classic & Tidal — Redirects stay inside Revived UI!)
 // ═════════════════════════════════════════════════════════════════════════════
 class RevivedPlayerScreen extends StatefulWidget {
   const RevivedPlayerScreen({super.key});
@@ -2201,11 +2341,14 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
           children: [
             IconButton(icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 30), onPressed: () => Navigator.of(context).pop()),
             Expanded(
-              child: Column(
-                children: [
-                  const Text('Now playing', style: TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600)),
-                  Text(track.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
-                ],
+              child: GestureDetector(
+                onTap: () => revivedGoToAlbum(context, track),
+                child: Column(
+                  children: [
+                    const Text('Now playing', style: TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    Text(track.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                  ],
+                ),
               ),
             ),
             IconButton(icon: const Icon(Icons.more_vert_rounded, color: Colors.white), onPressed: () => showRevivedTrackMenu(context, track)),
@@ -2217,16 +2360,19 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
         Row(
           children: [
             Expanded(
-              child: GestureDetector(
-                onTap: () => goToArtist(context, track),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 3),
-                    Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _kSub, fontSize: 15)),
-                  ],
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () => revivedGoToAlbum(context, track),
+                    child: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(height: 3),
+                  GestureDetector(
+                    onTap: () => revivedGoToArtist(context, track),
+                    child: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _kSub, fontSize: 15)),
+                  ),
+                ],
               ),
             ),
             IconButton(
@@ -2262,11 +2408,14 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
           children: [
             IconButton(icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 30), onPressed: () => Navigator.of(context).pop()),
             Expanded(
-              child: Column(
-                children: [
-                  const Text('Playing from', style: TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w500)),
-                  Text(track.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
-                ],
+              child: GestureDetector(
+                onTap: () => revivedGoToAlbum(context, track),
+                child: Column(
+                  children: [
+                    const Text('Playing from', style: TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w500)),
+                    Text(track.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                  ],
+                ),
               ),
             ),
             IconButton(icon: const Icon(Icons.more_horiz_rounded, color: Colors.white), onPressed: () => showRevivedTrackMenu(context, track)),
@@ -2279,16 +2428,19 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: GestureDetector(
-                onTap: () => goToArtist(context, track),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 2),
-                    Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _kSub, fontSize: 14.5)),
-                  ],
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () => revivedGoToAlbum(context, track),
+                    child: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(height: 2),
+                  GestureDetector(
+                    onTap: () => revivedGoToArtist(context, track),
+                    child: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _kSub, fontSize: 14.5)),
+                  ),
+                ],
               ),
             ),
             _likeBtn(track, _kTidalCyan),
@@ -2614,7 +2766,7 @@ void _showSleepTimerSheet(BuildContext context) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5. SPOTIFY-STYLE SETTINGS SCREEN (Classic / Tidal Player Picker, No App Styles)
+// 5. SETTINGS SCREEN (Classic Defaulted First + Crossfade Seconds Slider)
 // ═════════════════════════════════════════════════════════════════════════════
 void openRevivedSettings(BuildContext context) {
   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RevivedSettingsScreen()));
@@ -2628,6 +2780,8 @@ class RevivedSettingsScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: appState,
       builder: (context, _) {
+        final crossfadeOn = appState.b('crossfade_on');
+        final crossfadeSecs = appState.d('crossfade_secs', 6.0).clamp(1.0, 12.0);
         return Scaffold(
           backgroundColor: _bg,
           appBar: AppBar(
@@ -2697,7 +2851,36 @@ class RevivedSettingsScreen extends StatelessWidget {
                   ),
                 ),
                 const Divider(color: _kDivider, height: 1),
-                _toggle('Crossfade', 'Smoothly blend between songs', appState.b('crossfade_on'), (v) => appState.setB('crossfade_on', v)),
+                _toggle('Crossfade', 'Smoothly blend between songs', crossfadeOn, (v) => appState.setB('crossfade_on', v)),
+                if (crossfadeOn)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        const Text('Duration', style: TextStyle(color: _kSub, fontSize: 13, fontWeight: FontWeight.w600)),
+                        Expanded(
+                          child: Slider(
+                            activeColor: Colors.white,
+                            inactiveColor: Colors.white24,
+                            min: 1,
+                            max: 12,
+                            divisions: 11,
+                            value: crossfadeSecs,
+                            onChanged: (v) {
+                              HapticFeedback.selectionClick();
+                              appState.setD('crossfade_secs', v);
+                            },
+                          ),
+                        ),
+                        SizedBox(
+                          width: 34,
+                          child: Text('${crossfadeSecs.round()}s',
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(color: _kText, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    ),
+                  ),
                 const Divider(color: _kDivider, height: 1),
                 _toggle('Smooth play & pause fade', 'Fade volume gently on pause and resume', appState.b('smooth_fade'), (v) => appState.setB('smooth_fade', v)),
                 const Divider(color: _kDivider, height: 1),
@@ -2814,7 +2997,7 @@ class RevivedSettingsScreen extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6. FULL-SCREEN IN-APP UPDATE CHECKER (Clean Dark Style, Baked-In Version)
+// 6. FULL-SCREEN IN-APP UPDATE CHECKER
 // ═════════════════════════════════════════════════════════════════════════════
 const String _kUpdateRepo = 'cashhwocky/AlexLMPRevived';
 const MethodChannel _kRevivedMediaCh = MethodChannel('com.alexlmp.app/media');
