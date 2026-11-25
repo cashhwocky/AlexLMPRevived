@@ -4323,7 +4323,7 @@ class AlexLmpApp extends StatelessWidget {
             final mq = MediaQuery.of(context);
             return MediaQuery(
               data: mq.copyWith(textScaler: TextScaler.linear(textScale)),
-              child: LaunchSplash(child: child ?? const SizedBox.shrink()),
+              child: child ?? const SizedBox.shrink(),
             );
           },
           home: appState.b('setup_done')
@@ -4470,7 +4470,7 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         return null;
       }
       if (call.method == 'updateTapped' && mounted) {
-        checkForUpdates(context, manual: true);
+        checkRevivedUpdate(context, manual: true);
       }
       return null;
     });
@@ -4478,7 +4478,7 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
     try {
       tapped = await _mediaChannel.invokeMethod<bool>('takeUpdateTap') ?? false;
     } catch (_) {}
-    if (mounted) checkForUpdates(context, manual: tapped);
+    if (mounted && tapped) checkRevivedUpdate(context, manual: true);
   }
 
   @override
