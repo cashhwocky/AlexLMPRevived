@@ -326,16 +326,13 @@ jobs:
                   '</adaptive-icon>\n'
               )
 
-          # 1. Crimson (Default)
-          open(f"{R}/drawable/ic_launcher_background.xml", "w").write(make_bg("#0A0A0D"))
-          open(f"{R}/drawable/ic_launcher_foreground.xml", "w").write(make_fg("#D4D4DC", "#FF2A5F", "#FFFFFF", "#FF2A5F"))
-          # 2. Midnight (Blue — bloom alias)
-          open(f"{R}/drawable/ic_alt_bloom_bg.xml", "w").write(make_bg("#0B1020"))
-          open(f"{R}/drawable/ic_alt_bloom_fg.xml", "w").write(make_fg("#94A3B8", "#3B82F6", "#FFFFFF", "#3B82F6"))
-          # 3. Stealth (Mono — bitlmp alias)
-          open(f"{R}/drawable/ic_alt_bitlmp_bg.xml", "w").write(make_bg("#000000"))
-          open(f"{R}/drawable/ic_alt_bitlmp_fg.xml", "w").write(make_fg("#71717A", "#D4D4D8", "#FFFFFF", "#A1A1AA"))
-          # Monochrome themed icon
+          # Original Crimson 4-Bar Icon (default + all aliases)
+          bg_xml = make_bg("#0A0A0D")
+          fg_xml = make_fg("#D4D4DC", "#FF2A5F", "#FFFFFF", "#FF2A5F")
+          for n in ("ic_launcher_background", "ic_alt_bloom_bg", "ic_alt_bitlmp_bg"):
+              open(f"{R}/drawable/{n}.xml", "w").write(bg_xml)
+          for n in ("ic_launcher_foreground", "ic_alt_bloom_fg", "ic_alt_bitlmp_fg"):
+              open(f"{R}/drawable/{n}.xml", "w").write(fg_xml)
           open(f"{R}/drawable/ic_alt_mono.xml", "w").write(make_fg("#FF000000", "#FF000000", "#FF000000", "#FF000000"))
 
           # Force adaptive icon XMLs to point directly to our Crimson default + alternates
