@@ -290,8 +290,12 @@ jobs:
       - name: Apply AlexLMP Revived 4-Bar Icon
         run: |
           python3 - << 'PYEOF'
+          import os, struct, zlib
           R = "app_build/android/app/src/main/res"
+          os.makedirs(f"{R}/drawable", exist_ok=True)
+          os.makedirs(f"{R}/mipmap-anydpi-v26", exist_ok=True)
           HEAD = '<?xml version="1.0" encoding="utf-8"?>\n'
+
           def make_bg(color):
               return HEAD + (
                   '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
@@ -300,6 +304,7 @@ jobs:
                   f'<path android:pathData="M0,0h108v108h-108z" android:fillColor="{color}"/>'
                   '</vector>\n'
               )
+
           def make_fg(b1, b2, b3, b4):
               return HEAD + (
                   '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
@@ -311,18 +316,73 @@ jobs:
                   f'<path android:pathData="M70,45 L70,63" android:strokeWidth="6.4" android:strokeLineCap="round" android:strokeColor="{b4}"/>'
                   '</vector>\n'
               )
+
+          def make_adaptive(bg, fg):
+              return HEAD + (
+                  '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                  f'    <background android:drawable="@drawable/{bg}"/>\n'
+                  f'    <foreground android:drawable="@drawable/{fg}"/>\n'
+                  '    <monochrome android:drawable="@drawable/ic_alt_mono"/>\n'
+                  '</adaptive-icon>\n'
+              )
+
           # 1. Crimson (Default)
           open(f"{R}/drawable/ic_launcher_background.xml", "w").write(make_bg("#0A0A0D"))
           open(f"{R}/drawable/ic_launcher_foreground.xml", "w").write(make_fg("#D4D4DC", "#FF2A5F", "#FFFFFF", "#FF2A5F"))
-          # 2. Midnight (Blue accent — bloom alias)
+          # 2. Midnight (Blue — bloom alias)
           open(f"{R}/drawable/ic_alt_bloom_bg.xml", "w").write(make_bg("#0B1020"))
           open(f"{R}/drawable/ic_alt_bloom_fg.xml", "w").write(make_fg("#94A3B8", "#3B82F6", "#FFFFFF", "#3B82F6"))
-          # 3. Stealth (Monochrome — bitlmp alias)
+          # 3. Stealth (Mono — bitlmp alias)
           open(f"{R}/drawable/ic_alt_bitlmp_bg.xml", "w").write(make_bg("#000000"))
           open(f"{R}/drawable/ic_alt_bitlmp_fg.xml", "w").write(make_fg("#71717A", "#D4D4D8", "#FFFFFF", "#A1A1AA"))
           # Monochrome themed icon
           open(f"{R}/drawable/ic_alt_mono.xml", "w").write(make_fg("#FF000000", "#FF000000", "#FF000000", "#FF000000"))
-          print("Applied 3 selectable AlexLMP Revived 4-Bar Icons")
+
+          # Force adaptive icon XMLs to point directly to our Crimson default + alternates
+          for fname in ("ic_launcher.xml", "ic_launcher_round.xml"):
+              open(f"{R}/mipmap-anydpi-v26/{fname}", "w").write(make_adaptive("ic_launcher_background", "ic_launcher_foreground"))
+          open(f"{R}/mipmap-anydpi-v26/ic_alt_bloom.xml", "w").write(make_adaptive("ic_alt_bloom_bg", "ic_alt_bloom_fg"))
+          open(f"{R}/mipmap-anydpi-v26/ic_alt_bitlmp.xml", "w").write(make_adaptive("ic_alt_bitlmp_bg", "ic_alt_bitlmp_fg"))
+
+          # Pure-Python PNG writer so legacy mipmap PNGs & Android installer also show Crimson 4-bar
+          def write_png(path, size):
+              bg = (10, 10, 13, 255)
+              bars = [
+                  (0.28, 0.41, 0.59, (212, 212, 220, 255)),
+                  (0.42, 0.29, 0.71, (255, 42, 95, 255)),
+                  (0.56, 0.22, 0.78, (255, 255, 255, 255)),
+                  (0.70, 0.37, 0.63, (255, 42, 95, 255)),
+              ]
+              bw = 0.046
+              raw = bytearray()
+              for y in range(size):
+                  raw.append(0)
+                  ny = (y + 0.5) / size
+                  for x in range(size):
+                      nx = (x + 0.5) / size
+                      px = bg
+                      for cx, y0, y1, col in bars:
+                          if abs(nx - cx) <= bw and y0 <= ny <= y1:
+                              px = col
+                              break
+                          if (nx - cx)**2 + (ny - y0)**2 <= bw**2 or (nx - cx)**2 + (ny - y1)**2 <= bw**2:
+                              px = col
+                              break
+                      raw.extend(px)
+              def chunk(t, d):
+                  return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+              ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+              data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
+              with open(path, "wb") as f:
+                  f.write(data)
+
+          for folder, sz in [("mipmap-mdpi", 48), ("mipmap-hdpi", 72), ("mipmap-xhdpi", 96), ("mipmap-xxhdpi", 144), ("mipmap-xxxhdpi", 192)]:
+              d = f"{R}/{folder}"
+              os.makedirs(d, exist_ok=True)
+              write_png(f"{d}/ic_launcher.png", sz)
+              write_png(f"{d}/ic_launcher_round.png", sz)
+
+          print("Applied Crimson 4-bar default icon (adaptive XML + all mipmap PNGs)")
           PYEOF
 
       - name: Configure Gradle for Android SDK 35
