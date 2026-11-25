@@ -33,6 +33,105 @@ const Color _kBrandCrimson = Color(0xFFFF2A5F);
 /// Instant in-memory cache for Liked Music so it opens immediately
 YtAlbumPage? _memLikedPage;
 
+/// In-memory caches for exact album dates & artist listener counts
+final Map<String, Map<String, String>> _albumMetaCache = {};
+final Map<String, String> _artistListenersCache = {};
+
+const List<String> _kMonths = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+String _formatTotalDuration(List<TrackItem> tracks) {
+  final totalSec = tracks.fold<int>(0, (sum, t) => sum + t.durationSeconds);
+  if (totalSec <= 0) return '';
+  final mins = totalSec ~/ 60;
+  if (mins >= 60) {
+    final hrs = mins ~/ 60;
+    final rem = mins % 60;
+    return rem > 0 ? '$hrs hr $rem min' : '$hrs hr';
+  }
+  return '$mins min';
+}
+
+Future> _fetchAlbumMeta(String artist, String title) async {
+  final key = '${artist.toLowerCase()}|${title.toLowerCase()}';
+  if (_albumMetaCache.containsKey(key)) return _albumMetaCache[key]!;
+  try {
+    final q = Uri.encodeQueryComponent('$artist $title');
+    final res = await http
+        .get(Uri.parse('https://itunes.apple.com/search?term=$q&entity=album&limit=3'))
+        .timeout(const Duration(seconds: 4));
+    if (res.statusCode == 200) {
+      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      final results = (json['results'] as List? ?? const []).whereType();
+      Map? best;
+      final tLow = title.toLowerCase();
+      for (final r in results) {
+        final col = (r['collectionName'] ?? '').toString().toLowerCase();
+        if (col.contains(tLow) || tLow.contains(col)) {
+          best = r;
+          break;
+        }
+      }
+      best ??= results.isNotEmpty ? results.first : null;
+      if (best != null) {
+        final out = <String, String>{};
+        final rawDate = (best['releaseDate'] ?? '').toString();
+        final dt = DateTime.tryParse(rawDate);
+        if (dt != null) {
+          out['date'] = '${_kMonths[dt.month - 1]} ${dt.day}, ${dt.year}';
+        }
+        final genre = (best['primaryGenreName'] ?? '').toString().trim();
+        if (genre.isNotEmpty) out['genre'] = genre;
+        final copy = (best['copyright'] ?? '').toString().trim();
+        if (copy.isNotEmpty) out['copyright'] = copy;
+        _albumMetaCache[key] = out;
+        return out;
+      }
+    }
+  } catch (_) {}
+  _albumMetaCache[key] = const {};
+  return const {};
+}
+
+Future<String?> _fetchArtistListeners(String url, String name) async {
+  if (_artistListenersCache.containsKey(url)) return _artistListenersCache[url];
+  try {
+    final page = await YouTubeMusic.artist(url, name);
+    final txt = page.subscribersText?.trim();
+    if (txt != null && txt.isNotEmpty) {
+      _artistListenersCache[url] = txt;
+      return txt;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Seamless hero backdrop that NEVER leaves a 1px horizontal seam at the bottom
+List<Widget> _seamlessHeroLayers(ColorScheme cs, Widget backdrop, {double topOpacity = 0.5}) => [
+      Positioned(top: 0, left: 0, right: 0, bottom: 2, child: backdrop),
+      Positioned.fill(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: const [0.0, 0.40, 0.78, 0.94, 1.0],
+              colors: [
+                cs.surface.withOpacity(topOpacity),
+                cs.surface.withOpacity(0.12),
+                cs.surface.withOpacity(0.88),
+                cs.surface,
+                cs.surface,
+              ],
+            ),
+          ),
+        ),
+      ),
+      Positioned(left: 0, right: 0, bottom: -1, height: 5, child: ColoredBox(color: cs.surface)),
+    ];
+
 /// Edge-to-edge artwork helper that NEVER letterboxes or crops weirdly
 Widget _coverArt(TrackItem track, {double? size}) {
   final url = track.artworkUrl;
@@ -776,25 +875,10 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (heroTrack != null)
-                    _coverArt(heroTrack)
-                  else
-                    Container(color: cs.surfaceContainerHigh),
-                  // Smooth seamless fade directly into cs.surface (no hard line!)
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        stops: const [0.0, 0.42, 0.84, 1.0],
-                        colors: [
-                          cs.surface.withOpacity(0.55),
-                          cs.surface.withOpacity(0.15),
-                          cs.surface.withOpacity(0.94),
-                          cs.surface,
-                        ],
-                      ),
-                    ),
+                  ..._seamlessHeroLayers(
+                    cs,
+                    heroTrack != null ? _coverArt(heroTrack) : ColoredBox(color: cs.surfaceContainerHigh),
+                    topOpacity: 0.55,
                   ),
                   // Top Material Tonal Bar (no liquid glass!)
                   Positioned(
@@ -1183,6 +1267,18 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
                           Text('Top artist', style: TextStyle(color: cs.primary, fontSize: 11.5, fontWeight: FontWeight.w700)),
                           Text(topArtist.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                               style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                          FutureBuilder<String?>(
+                            future: _fetchArtistListeners(topArtist.url, topArtist.name),
+                            initialData: _artistListenersCache[topArtist.url],
+                            builder: (_, lSnap) {
+                              final txt = lSnap.data;
+                              if (txt == null || txt.isEmpty) return const SizedBox.shrink();
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(txt, style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w500)),
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -1266,14 +1362,18 @@ class _RevivedAppShellState extends State<RevivedAppShell> {
           final a = _artistRes[i];
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: _photoBannerCard(
-              cs: cs,
-              title: a.name,
-              subtitle: 'Artist',
-              thumb: a.thumbnail,
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => RevivedArtistPage(url: a.url, name: a.name, initialThumb: a.thumbnail),
-              )),
+            child: FutureBuilder<String?>(
+              future: _fetchArtistListeners(a.url, a.name),
+              initialData: _artistListenersCache[a.url],
+              builder: (_, lSnap) => _photoBannerCard(
+                cs: cs,
+                title: a.name,
+                subtitle: lSnap.data ?? 'Artist',
+                thumb: a.thumbnail,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => RevivedArtistPage(url: a.url, name: a.name, initialThumb: a.thumbnail),
+                )),
+              ),
             ),
           );
         },
@@ -1833,64 +1933,72 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
                     SizedBox(
                       height: 310 + top,
                       width: double.infinity,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (artUrl != null)
-                            Image.network(artUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: cs.surfaceContainerHigh))
-                          else
-                            Container(color: cs.surfaceContainerHigh),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                stops: const [0.0, 0.45, 0.85, 1.0],
-                                colors: [cs.surface.withOpacity(0.45), Colors.transparent, cs.surface.withOpacity(0.92), cs.surface],
+                      child: FutureBuilder>(
+                        future: _fetchAlbumMeta(page.artist, page.title),
+                        initialData: _albumMetaCache['${page.artist.toLowerCase()}|${page.title.toLowerCase()}'],
+                        builder: (_, metaSnap) {
+                          final meta = metaSnap.data ?? const {};
+                          final dateStr = meta['date'] ?? (page.year != null ? '${page.year}' : '');
+                          final genreStr = meta['genre'] ?? '';
+                          final durStr = _formatTotalDuration(page.tracks);
+                          final topMeta = [typeLabel, if (dateStr.isNotEmpty) dateStr, if (genreStr.isNotEmpty) genreStr].join(' • ');
+                          final subMeta = [
+                            page.artist,
+                            '${page.tracks.length} ${page.tracks.length == 1 ? "song" : "songs"}',
+                            if (durStr.isNotEmpty) durStr,
+                          ].join(' • ');
+
+                          return Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ..._seamlessHeroLayers(
+                                cs,
+                                artUrl != null
+                                    ? Image.network(artUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => ColoredBox(color: cs.surfaceContainerHigh))
+                                    : ColoredBox(color: cs.surfaceContainerHigh),
+                                topOpacity: 0.45,
                               ),
-                            ),
-                          ),
-                          Positioned(
-                            top: top + 8,
-                            left: 14,
-                            child: GestureDetector(
-                              onTap: () => Navigator.of(context).pop(),
-                              child: Container(
-                                width: 38,
-                                height: 38,
-                                decoration: BoxDecoration(color: cs.surfaceContainerHigh, shape: BoxShape.circle),
-                                child: Icon(Icons.arrow_back_rounded, color: cs.onSurface, size: 22),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            left: 18,
-                            right: 18,
-                            bottom: 12,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('$typeLabel${page.year != null ? " • ${page.year}" : ""}',
-                                    style: TextStyle(color: cs.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 4),
-                                Text(page.title, maxLines: 2, overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(color: cs.onSurface, fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.6, height: 1.1)),
-                                const SizedBox(height: 6),
-                                GestureDetector(
-                                  onTap: () {
-                                    if (page.artistUrl != null) {
-                                      Navigator.of(context).push(MaterialPageRoute(
-                                        builder: (_) => RevivedArtistPage(url: page.artistUrl!, name: page.artist),
-                                      ));
-                                    }
-                                  },
-                                  child: Text('${page.artist} • ${page.tracks.length} ${page.tracks.length == 1 ? "song" : "songs"}',
-                                      style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                              Positioned(
+                                top: top + 8,
+                                left: 14,
+                                child: GestureDetector(
+                                  onTap: () => Navigator.of(context).pop(),
+                                  child: Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: BoxDecoration(color: cs.surfaceContainerHigh, shape: BoxShape.circle),
+                                    child: Icon(Icons.arrow_back_rounded, color: cs.onSurface, size: 22),
+                                  ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ],
+                              ),
+                              Positioned(
+                                left: 18,
+                                right: 18,
+                                bottom: 14,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(topMeta, style: TextStyle(color: cs.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                                    const SizedBox(height: 4),
+                                    Text(page.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: cs.onSurface, fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.6, height: 1.1)),
+                                    const SizedBox(height: 6),
+                                    GestureDetector(
+                                      onTap: () {
+                                        if (page.artistUrl != null) {
+                                          Navigator.of(context).push(MaterialPageRoute(
+                                            builder: (_) => RevivedArtistPage(url: page.artistUrl!, name: page.artist),
+                                          ));
+                                        }
+                                      },
+                                      child: Text(subMeta, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                     Padding(
@@ -1958,7 +2066,37 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
                   );
                 },
               ),
-              const SliverPadding(padding: EdgeInsets.only(bottom: 36)),
+              SliverToBoxAdapter(
+                child: FutureBuilder>(
+                  future: _fetchAlbumMeta(page.artist, page.title),
+                  initialData: _albumMetaCache['${page.artist.toLowerCase()}|${page.title.toLowerCase()}'],
+                  builder: (_, metaSnap) {
+                    final meta = metaSnap.data ?? const {};
+                    final dateStr = meta['date'] ?? (page.year != null ? '${page.year}' : '');
+                    final durStr = _formatTotalDuration(page.tracks);
+                    final copy = meta['copyright'] ?? '';
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 20, 18, 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (dateStr.isNotEmpty)
+                            Text('Released $dateStr', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${page.tracks.length} ${page.tracks.length == 1 ? "song" : "songs"}${durStr.isNotEmpty ? ", $durStr" : ""}',
+                            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5),
+                          ),
+                          if (copy.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(copy, style: TextStyle(color: cs.onSurfaceVariant.withOpacity(0.75), fontSize: 11.5)),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
             ],
           );
         },
@@ -2013,19 +2151,12 @@ class _RevivedArtistPageState extends State<RevivedArtistPage> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (img != null)
-                            Image.network(img, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: cs.surfaceContainerHigh))
-                          else
-                            Container(color: cs.surfaceContainerHigh),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                stops: const [0.0, 0.5, 0.85, 1.0],
-                                colors: [cs.surface.withOpacity(0.4), Colors.transparent, cs.surface.withOpacity(0.9), cs.surface],
-                              ),
-                            ),
+                          ..._seamlessHeroLayers(
+                            cs,
+                            img != null
+                                ? Image.network(img, fit: BoxFit.cover, errorBuilder: (_, __, ___) => ColoredBox(color: cs.surfaceContainerHigh))
+                                : ColoredBox(color: cs.surfaceContainerHigh),
+                            topOpacity: 0.42,
                           ),
                           Positioned(
                             top: top + 8,
@@ -2275,19 +2406,12 @@ class _RevivedPlaylistPageState extends State<RevivedPlaylistPage> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (thumb != null)
-                        Image.network(thumb, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _likedCover(cs, iconSize: 72))
-                      else
-                        _likedCover(cs, iconSize: 72),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: const [0.0, 0.4, 0.85, 1.0],
-                            colors: [cs.surface.withOpacity(0.45), Colors.transparent, cs.surface.withOpacity(0.92), cs.surface],
-                          ),
-                        ),
+                      ..._seamlessHeroLayers(
+                        cs,
+                        thumb != null
+                            ? Image.network(thumb, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _likedCover(cs, iconSize: 72))
+                            : _likedCover(cs, iconSize: 72),
+                        topOpacity: 0.45,
                       ),
                       Positioned(
                         top: top + 8,
