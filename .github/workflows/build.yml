@@ -413,45 +413,27 @@ jobs:
           name: AlexLMPRevived-Release-APK
           path: app_build/build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Name the APK for the release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Prepare Release APKs and Auto-Tag
+        if: github.event_name == 'push'
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            AUTO_TAG="$GITHUB_REF_NAME"
+          else
+            AUTO_TAG="v${VERSION_NAME}.${{ github.run_number }}"
+          fi
+          echo "AUTO_TAG=$AUTO_TAG" >> "$GITHUB_ENV"
           mkdir -p release_apks
-          cp app_build/build/app/outputs/flutter-apk/app-release.apk "release_apks/AlexLMPRevived-${GITHUB_REF_NAME}-universal.apk"
-          cp app_build/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release_apks/AlexLMPRevived-${GITHUB_REF_NAME}-arm64-v8a.apk"
-          cp app_build/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release_apks/AlexLMPRevived-${GITHUB_REF_NAME}-armeabi-v7a.apk"
-          cp app_build/build/app/outputs/flutter-apk/app-x86_64-release.apk "release_apks/AlexLMPRevived-${GITHUB_REF_NAME}-x86_64.apk"
+          cp app_build/build/app/outputs/flutter-apk/app-release.apk "release_apks/AlexLMPRevived-${AUTO_TAG}-universal.apk"
+          cp app_build/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release_apks/AlexLMPRevived-${AUTO_TAG}-arm64-v8a.apk"
+          cp app_build/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release_apks/AlexLMPRevived-${AUTO_TAG}-armeabi-v7a.apk"
+          cp app_build/build/app/outputs/flutter-apk/app-x86_64-release.apk "release_apks/AlexLMPRevived-${AUTO_TAG}-x86_64.apk"
 
-      - name: Publish GitHub Release with the APK
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Auto-Publish GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          name: AlexLMP Revived ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
+          tag_name: ${{ env.AUTO_TAG }}
+          name: AlexLMP Revived ${{ env.AUTO_TAG }}
+          generate_release_notes: true
+          make_latest: true
           files: release_apks/*.apk
-
-      # A push to main also fills in a release you already published for this
-      # version, even if its tag is missing the "v" (2.8.7 instead of v2.8.7).
-      # It never creates a release on its own.
-      - name: Find a published release for this version
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for t in "v$VERSION_NAME" "$VERSION_NAME"; do
-            if gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "Found release $t for version $VERSION_NAME"
-              echo "REL_TAG=$t" >> "$GITHUB_ENV"
-              cp app_build/build/app/outputs/flutter-apk/app-release.apk "AlexLMPRevived-v$VERSION_NAME.apk"
-              break
-            fi
-          done
-
-      - name: Attach the APK to that release
-        if: env.REL_TAG != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.REL_TAG }}
-          name: AlexLMP Revived v${{ env.VERSION_NAME }}
-          body_path: RELEASE_NOTES.md
-          files: AlexLMPRevived-v${{ env.VERSION_NAME }}.apk
