@@ -151,6 +151,150 @@ List<Widget> _seamlessHeroLayers(ColorScheme cs, Widget backdrop, {double topOpa
     ];
 
 /// Edge-to-edge artwork helper that NEVER letterboxes or crops weirdly
+
+/// Animated Heart Button with spring bounce, shockwave ring, and radial sparkle burst
+class _AnimatedHeartButton extends StatefulWidget {
+  final bool liked;
+  final Color activeColor;
+  final Color inactiveColor;
+  final double size;
+  final VoidCallback onTap;
+
+  const _AnimatedHeartButton({
+    required this.liked,
+    required this.activeColor,
+    required this.inactiveColor,
+    this.size = 26,
+    required this.onTap,
+  });
+
+  @override
+  State<_AnimatedHeartButton> createState() => _AnimatedHeartButtonState();
+}
+
+class _AnimatedHeartButtonState extends State<_AnimatedHeartButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 520));
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.72).chain(CurveTween(curve: Curves.easeIn)), weight: 16),
+      TweenSequenceItem(tween: Tween(begin: 0.72, end: 1.38).chain(CurveTween(curve: Curves.easeOutBack)), weight: 36),
+      TweenSequenceItem(tween: Tween(begin: 1.38, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 48),
+    ]).animate(_ctrl);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedHeartButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.liked && !oldWidget.liked) {
+      _ctrl.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    if (!widget.liked) {
+      HapticFeedback.mediumImpact();
+      _ctrl.forward(from: 0.0);
+    } else {
+      HapticFeedback.selectionClick();
+    }
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _handleTap,
+      child: SizedBox(
+        width: 46,
+        height: 46,
+        child: AnimatedBuilder(
+          animation: _ctrl,
+          builder: (_, __) {
+            return Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                if (widget.liked && _ctrl.isAnimating)
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _HeartBurstPainter(
+                        progress: _ctrl.value,
+                        color: widget.activeColor,
+                      ),
+                    ),
+                  ),
+                Transform.scale(
+                  scale: widget.liked ? _scale.value : 1.0,
+                  child: Icon(
+                    widget.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    color: widget.liked ? widget.activeColor : widget.inactiveColor,
+                    size: widget.size,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _HeartBurstPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  _HeartBurstPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0.0 || progress >= 1.0) return;
+    final center = Offset(size.width / 2, size.height / 2);
+
+    final ringP = (progress / 0.62).clamp(0.0, 1.0);
+    if (ringP < 1.0) {
+      final eased = Curves.easeOutCubic.transform(ringP);
+      final ringPaint = Paint()
+        ..color = color.withOpacity((1.0 - ringP) * 0.75)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.2 * (1.0 - ringP) + 0.5;
+      canvas.drawCircle(center, 6.0 + 20.0 * eased, ringPaint);
+    }
+
+    final partP = ((progress - 0.10) / 0.90).clamp(0.0, 1.0);
+    if (partP > 0.0) {
+      final eased = Curves.easeOutCubic.transform(partP);
+      final fade = (1.0 - partP).clamp(0.0, 1.0);
+      final softColor = Color.lerp(color, Colors.white, 0.55) ?? Colors.white;
+      for (var i = 0; i < 8; i++) {
+        final angle = (i * pi / 4) - (pi / 2) + (i.isOdd ? 0.14 : 0.0);
+        final dist = 9.0 + (i.isEven ? 18.0 : 14.0) * eased;
+        final pos = Offset(center.dx + cos(angle) * dist, center.dy + sin(angle) * dist);
+        final r = (i.isEven ? 3.1 : 2.1) * fade;
+        final dotPaint = Paint()..color = (i.isEven ? color : softColor).withOpacity(fade);
+        canvas.drawCircle(pos, r, dotPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _HeartBurstPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
 Widget _coverArt(TrackItem track, {double? size}) {
   final url = track.artworkUrl;
   if (url != null && url.isNotEmpty) {
@@ -325,13 +469,15 @@ void showRevivedTrackMenu(BuildContext context, TrackItem track) {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(appState.isLiked(track.id) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: appState.isLiked(track.id) ? cs.primary : cs.onSurface),
-                  onPressed: () {
-                    appState.toggleLike(track.id);
-                    Navigator.pop(ctx);
-                  },
+                ListenableBuilder(
+                  listenable: appState,
+                  builder: (_, __) => _AnimatedHeartButton(
+                    liked: appState.isLiked(track.id),
+                    activeColor: cs.primary,
+                    inactiveColor: cs.onSurface,
+                    size: 24,
+                    onTap: () => appState.toggleLike(track.id),
+                  ),
                 ),
               ],
             ),
@@ -2772,12 +2918,12 @@ class _RevivedPlayerScreenState extends State<RevivedPlayerScreen> {
         listenable: appState,
         builder: (_, __) {
           final liked = appState.isLiked(track.id);
-          return IconButton(
-            icon: Icon(liked ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: liked ? activeColor : Colors.white, size: 26),
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              appState.toggleLike(track.id);
-            },
+          return _AnimatedHeartButton(
+            liked: liked,
+            activeColor: activeColor,
+            inactiveColor: Colors.white,
+            size: 26,
+            onTap: () => appState.toggleLike(track.id),
           );
         },
       );
