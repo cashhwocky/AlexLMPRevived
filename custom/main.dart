@@ -4565,7 +4565,9 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         _dockOverlay = true;
 
         if (true) {
-          return XpShell(aiChatBuilder: _aiPageStd);
+          return appState.str('xp_layout', 'playmusic') == 'playmusic'
+              ? PmShell(aiChatBuilder: _aiPageStd)
+              : XpShell(aiChatBuilder: _aiPageStd);
         }
         if (appState.appStyle == 'bloom') {
           return _bloomScaffold(context, pal, tracks);
@@ -30903,7 +30905,7 @@ class _ClockPainter extends CustomPainter {
 // When you publish a release: bump kAppVersion here to the SAME number as the
 // release tag (tag v2.2.0  ->  kAppVersion '2.2.0').
 
-const String kAppVersion = '2.1.0';
+const String kAppVersion = '2.2.0';
 /// "Support my project" card at the very top of Settings.
 class SupportCard extends StatefulWidget {
   const SupportCard({super.key});
