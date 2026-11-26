@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'main.dart';
+import 'expressive.dart';
 
 // ── Palette (matches the Material 3 Expressive look) ─────────────────────────
 const Color _kBg = Color(0xFF1A1210);
@@ -502,7 +503,9 @@ class RevivedBrandMark extends StatelessWidget {
   Widget _bar(double w, double h, Color c) => Container(width: w, height: h, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(w)));
 }
 
-void showRevivedTrackMenu(BuildContext context, TrackItem track) {
+void showRevivedTrackMenu(BuildContext context, TrackItem track) => showXpTrackMenu(context, track);
+
+void _oldRevivedTrackMenu(BuildContext context, TrackItem track) {
   HapticFeedback.lightImpact();
   showModalBottomSheet<void>(
     context: context,
@@ -3448,7 +3451,7 @@ void _showSleepTimerSheet(BuildContext context) {
 // 5. SETTINGS SCREEN (Player Style Picker, Crossfade, No App Icon Picker)
 // ═════════════════════════════════════════════════════════════════════════════
 void openRevivedSettings(BuildContext context) {
-  Navigator.of(context).push(_revivedRoute(const RevivedSettingsScreen()));
+  Navigator.of(context).push(xpRoute(const XpSettingsPage()));
 }
 
 class RevivedSettingsScreen extends StatelessWidget {

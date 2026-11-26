@@ -322,11 +322,20 @@ class _XpPressState extends State<XpPress> with SingleTickerProviderStateMixin {
   late final AnimationController _p = AnimationController.unbounded(vsync: this, value: 0);
   static const _spring = SpringDescription(mass: 1, stiffness: 520, damping: 14);
 
+  bool _held = false;
+
   void _down() {
-    _p.animateTo(1, duration: const Duration(milliseconds: 110), curve: Curves.easeOut);
+    _held = true;
+    _p.animateTo(1, duration: const Duration(milliseconds: 90), curve: Curves.easeOut);
   }
 
-  void _up() {
+  /// Always plays the full squish, even for a quick tap.
+  Future<void> _up() async {
+    _held = false;
+    if (_p.value < 0.95) {
+      await _p.animateTo(1, duration: Duration(milliseconds: (90 * (1 - _p.value)).round() + 10), curve: Curves.easeOut);
+    }
+    if (!mounted || _held) return;
     _p.animateWith(SpringSimulation(_spring, _p.value, 0, -4));
   }
 
@@ -339,11 +348,12 @@ class _XpPressState extends State<XpPress> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null || widget.onLongPress != null;
-    return GestureDetector(
+    return Listener(
+      onPointerDown: enabled ? (_) => _down() : null,
+      onPointerUp: enabled ? (_) => _up() : null,
+      onPointerCancel: enabled ? (_) => _up() : null,
+      child: GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: enabled ? (_) => _down() : null,
-      onTapUp: enabled ? (_) => _up() : null,
-      onTapCancel: enabled ? _up : null,
       onTap: widget.onTap == null
           ? null
           : () {
@@ -368,6 +378,7 @@ class _XpPressState extends State<XpPress> with SingleTickerProviderStateMixin {
           );
         },
         child: widget.child,
+      ),
       ),
     );
   }
@@ -718,11 +729,13 @@ Route<T> xpRoute<T>(Widget page) => PageRouteBuilder<T>(
 void xpOpenShelf(BuildContext context, YtShelfItem it) {
   HapticFeedback.selectionClick();
   if (it.kind == 'album') {
-    Navigator.of(context).push(xpRoute(RevivedAlbumPage(url: it.id, initialTitle: it.title, initialThumb: it.thumbnail)));
+    Navigator.of(context).push(xpRoute(XpCollectionPage.album(url: it.id, title: it.title, thumbnail: it.thumbnail)));
   } else if (it.kind == 'artist') {
-    Navigator.of(context).push(xpRoute(RevivedArtistPage(url: it.id, name: it.title, initialThumb: it.thumbnail)));
+    Navigator.of(context).push(xpRoute(XpArtistPage(url: it.id, name: it.title, thumbnail: it.thumbnail)));
   } else if (it.kind == 'playlist') {
-    Navigator.of(context).push(xpRoute(RevivedPlaylistPage.youtube(playlistId: it.id, title: it.title, thumbnail: it.thumbnail)));
+    Navigator.of(context).push(xpRoute(it.id == 'LM'
+        ? const XpCollectionPage.liked()
+        : XpCollectionPage.youtube(playlistId: it.id, title: it.title, thumbnail: it.thumbnail)));
   } else {
     final t = YouTubeMusic.trackFromShelf(it, it.subtitle);
     audioHandler.playYouTubeTrack(t);
@@ -763,6 +776,7 @@ class XpSongRow extends StatelessWidget {
   final String? subtitle;
   final Widget? leading;
   final XpShape shape;
+  final Playlist? inPlaylist;
   const XpSongRow({
     super.key,
     required this.track,
@@ -770,6 +784,7 @@ class XpSongRow extends StatelessWidget {
     this.subtitle,
     this.leading,
     this.shape = XpShape.square,
+    this.inPlaylist,
   });
   @override
   Widget build(BuildContext context) {
@@ -778,7 +793,7 @@ class XpSongRow extends StatelessWidget {
     return XpPress(
       amount: 0.5,
       onTap: onTap,
-      onLongPress: () => showRevivedTrackMenu(context, track),
+      onLongPress: () => showXpTrackMenu(context, track, inPlaylist: inPlaylist),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(children: [
@@ -807,7 +822,7 @@ class XpSongRow extends StatelessWidget {
           ],
           IconButton(
             icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
-            onPressed: () => showRevivedTrackMenu(context, track),
+            onPressed: () => showXpTrackMenu(context, track, inPlaylist: inPlaylist),
           ),
         ]),
       ),
@@ -940,35 +955,65 @@ class XpShell extends StatefulWidget {
 }
 
 class _XpShellState extends State<XpShell> {
-  int _tab = 0;
+  late String _tab = appState.str('xp_start_tab', 'home');
   int _dir = 1;
-  final Set<int> _visited = {0};
+  late final Set<String> _visited = {_tab};
+
+  static const Map<String, (IconData, IconData, String)> _meta = {
+    'home': (Icons.home_outlined, Icons.home_rounded, 'Home'),
+    'search': (Icons.search_rounded, Icons.saved_search_rounded, 'Search'),
+    'library': (Icons.library_music_outlined, Icons.library_music_rounded, 'Library'),
+    'ai': (Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'AI'),
+    'stats': (Icons.insights_outlined, Icons.insights_rounded, 'Stats'),
+    'you': (Icons.person_outline_rounded, Icons.person_rounded, 'You'),
+  };
+
+  List<String> get _ids => [
+        'home',
+        if (appState.b('xp_tab_search', true)) 'search',
+        'library',
+        if (appState.b('xp_tab_ai') && widget.aiChatBuilder != null) 'ai',
+        if (appState.b('xp_tab_stats')) 'stats',
+        'you',
+      ];
 
   @override
   void initState() {
     super.initState();
     xpInit();
+    if (!_ids.contains(_tab)) {
+      _tab = 'home';
+      _visited.add('home');
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) checkRevivedUpdate(context);
     });
   }
 
-  void _go(int i) {
-    if (i == _tab) return;
+  void _go(String id) {
+    if (id == _tab) return;
+    final ids = _ids;
     setState(() {
-      _dir = i > _tab ? 1 : -1;
-      _tab = i;
-      _visited.add(i);
+      _dir = ids.indexOf(id) > ids.indexOf(_tab) ? 1 : -1;
+      _tab = id;
+      _visited.add(id);
     });
   }
 
-  Widget _page(int i) {
-    switch (i) {
-      case 1:
+  Widget _page(String id) {
+    switch (id) {
+      case 'search':
         return const XpSearchPage();
-      case 2:
+      case 'library':
         return const XpLibraryPage();
-      case 3:
+      case 'ai':
+        return Padding(
+          padding: EdgeInsets.only(bottom: xpBottomPad(context) - 16),
+          child: widget.aiChatBuilder!(appState.palette),
+        );
+      case 'stats':
+        return const XpStatsPage(inTab: true);
+      case 'you':
         return XpYouPage(aiChatBuilder: widget.aiChatBuilder);
       default:
         return XpHomePage(aiChatBuilder: widget.aiChatBuilder, onGoTab: _go);
@@ -978,71 +1023,82 @@ class _XpShellState extends State<XpShell> {
   @override
   Widget build(BuildContext context) {
     return XpThemed(
-      child: Builder(builder: (context) {
-        final cs = context.cs;
-        SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          systemNavigationBarColor: cs.surfaceContainer,
-          systemNavigationBarIconBrightness: Brightness.light,
-        ));
-        return PopScope(
-          canPop: _tab == 0,
-          onPopInvoked: (did) {
-            if (!did) _go(0);
-          },
-          child: Scaffold(
-            backgroundColor: cs.surface,
-            resizeToAvoidBottomInset: false,
-            body: Stack(
-              children: [
-                // Soft colour wash from the playing song at the top.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: 380,
-                  child: IgnorePointer(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 700),
-                      decoration: BoxDecoration(
-                        gradient: RadialGradient(
-                          center: const Alignment(-0.4, -1.2),
-                          radius: 1.3,
-                          colors: [cs.primaryContainer.withOpacity(0.55), cs.surface.withOpacity(0)],
+      child: ListenableBuilder(
+        listenable: appState,
+        builder: (context, _) {
+          final cs = context.cs;
+          final ids = _ids;
+          if (!ids.contains(_tab)) _tab = 'home';
+          final navStyle = appState.str('xp_nav_style', 'docked');
+          SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            systemNavigationBarColor: navStyle == 'floating' ? cs.surface : cs.surfaceContainer,
+            systemNavigationBarIconBrightness: Brightness.light,
+          ));
+          return PopScope(
+            canPop: _tab == 'home',
+            onPopInvoked: (did) {
+              if (!did) _go('home');
+            },
+            child: Scaffold(
+              backgroundColor: cs.surface,
+              resizeToAvoidBottomInset: false,
+              body: Stack(
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: 380,
+                    child: IgnorePointer(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 700),
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: const Alignment(-0.4, -1.2),
+                            radius: 1.3,
+                            colors: [cs.primaryContainer.withOpacity(0.55), cs.surface.withOpacity(0)],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                for (final i in (_visited.toList()..sort()))
-                  Positioned.fill(
-                    key: ValueKey('xptab$i'),
-                    child: Offstage(
-                      offstage: i != _tab,
-                      child: TickerMode(
-                        enabled: i == _tab,
-                        child: _XpTabIn(active: i == _tab, dir: _dir.toDouble(), child: _page(i)),
+                  for (final id in ids)
+                    if (_visited.contains(id))
+                      Positioned.fill(
+                        key: ValueKey('xptab$id'),
+                        child: Offstage(
+                          offstage: id != _tab,
+                          child: TickerMode(
+                            enabled: id == _tab,
+                            child: _XpTabIn(active: id == _tab, dir: _dir.toDouble(), child: _page(id)),
+                          ),
+                        ),
                       ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const XpMiniPlayer(),
+                        XpNavBar(
+                          items: [for (final id in ids) (id, _meta[id]!.$1, _meta[id]!.$2, _meta[id]!.$3)],
+                          current: _tab,
+                          onSelect: _go,
+                          style: navStyle,
+                        ),
+                      ],
                     ),
                   ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const XpMiniPlayer(),
-                      XpNavBar(index: _tab, onSelect: _go),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 }
@@ -1094,34 +1150,81 @@ class _XpTabInState extends State<_XpTabIn> with SingleTickerProviderStateMixin 
   }
 }
 
-// ── Navigation bar: pill indicator that stretches open, icons squish ──
+// ── Navigation bar: docked, floating or icons only; indicator stretches, icons squish ──
 class XpNavBar extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onSelect;
-  const XpNavBar({super.key, required this.index, required this.onSelect});
-
-  static const _items = [
-    (Icons.home_outlined, Icons.home_rounded, 'Home'),
-    (Icons.search_rounded, Icons.saved_search_rounded, 'Search'),
-    (Icons.library_music_outlined, Icons.library_music_rounded, 'Library'),
-    (Icons.person_outline_rounded, Icons.person_rounded, 'You'),
-  ];
+  final List<(String, IconData, IconData, String)> items;
+  final String current;
+  final ValueChanged<String> onSelect;
+  final String style;
+  const XpNavBar({super.key, required this.items, required this.current, required this.onSelect, this.style = 'docked'});
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final bottom = MediaQuery.of(context).padding.bottom;
+    if (style == 'floating') {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, bottom + 12),
+        child: Container(
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 24, offset: const Offset(0, 8))],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              for (final it in items)
+                XpPress(
+                  haptic: false,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    onSelect(it.$1);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutBack,
+                    height: 48,
+                    padding: EdgeInsets.symmetric(horizontal: it.$1 == current ? 16 : 12),
+                    decoration: BoxDecoration(
+                      color: it.$1 == current ? cs.primary : cs.primary.withOpacity(0),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(it.$1 == current ? it.$3 : it.$2,
+                          color: it.$1 == current ? cs.onPrimary : cs.onSurfaceVariant, size: 24),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 380),
+                        curve: Curves.easeOutBack,
+                        child: it.$1 == current
+                            ? Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Text(it.$4, style: xpT(14, c: cs.onPrimary, w: FontWeight.w800)),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ]),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    final labels = style != 'icons';
     return Container(
       color: cs.surfaceContainer,
-      padding: EdgeInsets.only(top: 10, bottom: bottom + 10),
+      padding: EdgeInsets.only(top: labels ? 10 : 12, bottom: bottom + (labels ? 10 : 12)),
       child: Row(
         children: [
-          for (var i = 0; i < _items.length; i++)
+          for (final it in items)
             Expanded(
               child: XpPress(
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  onSelect(i);
+                  onSelect(it.$1);
                 },
                 haptic: false,
                 child: Column(
@@ -1135,32 +1238,34 @@ class XpNavBar extends StatelessWidget {
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 420),
                             curve: Curves.easeOutBack,
-                            width: i == index ? 64 : 18,
+                            width: it.$1 == current ? 64 : 18,
                             height: 32,
                             decoration: BoxDecoration(
-                              color: i == index ? cs.secondaryContainer : cs.secondaryContainer.withOpacity(0),
+                              color: it.$1 == current ? cs.secondaryContainer : cs.secondaryContainer.withOpacity(0),
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
                           AnimatedScale(
-                            scale: i == index ? 1.08 : 1,
+                            scale: it.$1 == current ? 1.08 : 1,
                             duration: const Duration(milliseconds: 380),
                             curve: Curves.easeOutBack,
-                            child: Icon(i == index ? _items[i].$2 : _items[i].$1,
+                            child: Icon(it.$1 == current ? it.$3 : it.$2,
                                 size: 24,
-                                color: i == index ? cs.onSecondaryContainer : cs.onSurfaceVariant),
+                                color: it.$1 == current ? cs.onSecondaryContainer : cs.onSurfaceVariant),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 250),
-                      style: xpT(12,
-                          w: i == index ? FontWeight.w800 : FontWeight.w600,
-                          c: i == index ? cs.onSurface : cs.onSurfaceVariant),
-                      child: Text(_items[i].$3),
-                    ),
+                    if (labels) ...[
+                      const SizedBox(height: 4),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 250),
+                        style: xpT(12,
+                            w: it.$1 == current ? FontWeight.w800 : FontWeight.w600,
+                            c: it.$1 == current ? cs.onSurface : cs.onSurfaceVariant),
+                        child: Text(it.$4),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1399,7 +1504,7 @@ class XpPlayButton extends StatelessWidget {
 
 class XpHomePage extends StatefulWidget {
   final Widget Function(AppPalette pal)? aiChatBuilder;
-  final ValueChanged<int> onGoTab;
+  final ValueChanged<String> onGoTab;
   const XpHomePage({super.key, this.aiChatBuilder, required this.onGoTab});
   @override
   State<XpHomePage> createState() => _XpHomePageState();
@@ -1479,13 +1584,18 @@ class _XpHomePageState extends State<XpHomePage> {
                       ],
                     ),
                   ),
+                  if (!appState.b('xp_tab_search', true)) ...[
+                    XpIconBtn(Icons.search_rounded, tip: 'Search', radius: 16,
+                        onTap: () => Navigator.of(context).push(xpRoute(const Scaffold(body: XpSearchPage())))),
+                    const SizedBox(width: 8),
+                  ],
                   if (widget.aiChatBuilder != null)
                     XpIconBtn(Icons.auto_awesome_rounded,
                         tip: 'Ask AI', bg: cs.tertiaryContainer, fg: cs.onTertiaryContainer, radius: 16,
                         onTap: () => _openAi(context)),
                   const SizedBox(width: 8),
                   XpPress(
-                    onTap: () => widget.onGoTab(3),
+                    onTap: () => widget.onGoTab('you'),
                     child: XpShaped(
                       shape: XpShape.cookie9,
                       size: 46,
@@ -1509,15 +1619,80 @@ class _XpHomePageState extends State<XpHomePage> {
                   onChanged: (i) => appState.setStr('home_mode', i == 0 ? 'youtube' : 'local'),
                 ),
               ),
-              _carousel(context, yt),
-              _quickGroup(context, yt),
-              const _XpWeekCard(),
-              if (yt) _ytShelves(context) else ..._localShelves(context),
+              ..._styled(context, yt),
             ],
           ),
         );
       },
     );
+  }
+
+  List<Widget> _styled(BuildContext context, bool yt) {
+    switch (appState.str('xp_home_style', 'expressive')) {
+      case 'compact':
+        return [
+          _quickTilesFor(context, yt),
+          _quickGroup(context, yt),
+          if (yt) _ytShelves(context, compact: true) else ..._localShelves(context),
+        ];
+      case 'magazine':
+        return [
+          _quickGroup(context, yt),
+          if (audioHandler.currentTrack case final cur?)
+            xpFeatureCard(context,
+                art: xpTrackArt(cur, hiRes: true),
+                kicker: 'Continue listening',
+                title: cur.title,
+                sub: cur.artist,
+                onTap: () => openPlayer(context)),
+          if (yt) _ytShelves(context, magazine: true) else ..._localShelves(context),
+          const _XpWeekCard(),
+        ];
+      case 'grid':
+        return [
+          _quickGroup(context, yt),
+          if (yt) _ytShelves(context, grid: true) else ..._localShelves(context),
+        ];
+      default:
+        return [
+          _carousel(context, yt),
+          _quickGroup(context, yt),
+          const _XpWeekCard(),
+          if (yt) _ytShelves(context) else ..._localShelves(context),
+        ];
+    }
+  }
+
+  Widget _quickTilesFor(BuildContext context, bool yt) {
+    final cs = context.cs;
+    final items = <(Widget, String, VoidCallback)>[
+      (
+        Container(color: cs.primary, child: Icon(Icons.favorite_rounded, color: cs.onPrimary)),
+        'Liked songs',
+        () => Navigator.of(context).push(xpRoute(const XpCollectionPage.liked()))
+      ),
+    ];
+    for (final id in appState.recent.take(3)) {
+      final t = audioHandler.trackById(id);
+      if (t != null) items.add((xpTrackArt(t), t.title, () => audioHandler.playYouTubeTrack(t)));
+    }
+    if (yt) {
+      for (final sh in YouTubeMusic.cachedHomeFeed() ?? const <YtShelf>[]) {
+        for (final it in sh.items.where((i) => i.kind == 'playlist' || i.kind == 'album')) {
+          if (items.length >= 8) break;
+          items.add((xpUrlArt(it.thumbnail), it.title, () => xpOpenShelf(context, it)));
+        }
+      }
+    } else {
+      for (final pl in appState.playlists.take(8 - items.length)) {
+        items.add((
+          Container(color: cs.secondaryContainer, child: Icon(Icons.queue_music_rounded, color: cs.onSecondaryContainer)),
+          pl.name,
+          () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: pl)))
+        ));
+      }
+    }
+    return xpQuickTiles(context, items.take(8).toList());
   }
 
   // Hero carousel: what's playing + recent things, cards grow as they centre.
@@ -1625,9 +1800,7 @@ class _XpHomePageState extends State<XpHomePage> {
           openPlayer(context);
         }, weight: 1.3),
         XpGroupItem(Icons.favorite_rounded, 'Liked', cs.secondaryContainer, cs.onSecondaryContainer, () {
-          Navigator.of(context).push(xpRoute(yt
-              ? const RevivedPlaylistPage.youtube(playlistId: 'LM', title: 'Liked Music')
-              : RevivedPlaylistPage.custom(title: 'Liked songs', tracks: xpLikedTracks(), isLikedStyle: true)));
+          Navigator.of(context).push(xpRoute(const XpCollectionPage.liked()));
         }),
         XpGroupItem(Icons.graphic_eq_rounded, 'AI DJ', cs.tertiaryContainer, cs.onTertiaryContainer, () {
           startOrStepAiDj(openInPlayer: context);
@@ -1636,7 +1809,7 @@ class _XpHomePageState extends State<XpHomePage> {
     );
   }
 
-  Widget _ytShelves(BuildContext context) {
+  Widget _ytShelves(BuildContext context, {bool compact = false, bool magazine = false, bool grid = false}) {
     return FutureBuilder<List<YtShelf>>(
       future: _feed,
       initialData: YouTubeMusic.cachedHomeFeed(),
@@ -1654,11 +1827,85 @@ class _XpHomePageState extends State<XpHomePage> {
           );
         }
         var k = 0;
+        if (grid) {
+          final songShelves = shelves.where((sh) => sh.kind == 'song' || sh.items.every((i) => i.kind == 'video')).toList();
+          final tiles = [
+            for (final sh in shelves)
+              if (!songShelves.contains(sh)) ...sh.items,
+          ];
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final sh in songShelves.take(1)) XpShelf(shelf: sh, shapeIndex: 0),
+            xpSection(context, 'For you'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2, mainAxisSpacing: 16, crossAxisSpacing: 14, childAspectRatio: 0.78),
+                itemCount: tiles.length,
+                itemBuilder: (_, i) => XpPopIn(
+                  index: i,
+                  child: XpPress(
+                    amount: 0.6,
+                    onTap: () => xpOpenShelf(context, tiles[i]),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(
+                        child: XpShaped(
+                          shape: tiles[i].kind == 'artist' ? XpShape.circle : kXpCardShapes[i % kXpCardShapes.length],
+                          child: SizedBox.expand(child: xpUrlArt(xpHiRes(tiles[i].thumbnail))),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(tiles[i].title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(14.5)),
+                      Text(tiles[i].subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: xpT(12.5, w: FontWeight.w500, c: context.cs.onSurfaceVariant)),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ]);
+        }
+        if (magazine) {
+          final out = <Widget>[];
+          var n = 0;
+          for (final sh in shelves) {
+            if (sh.items.isEmpty) continue;
+            final songs = sh.kind == 'song' || sh.items.every((i) => i.kind == 'video');
+            if (songs) {
+              out.add(XpShelf(shelf: sh, shapeIndex: k++));
+              continue;
+            }
+            final first = sh.items.first;
+            out.add(xpFeatureCard(context,
+                art: xpUrlArt(xpHiRes(first.thumbnail)),
+                kicker: sh.title.isEmpty ? 'For you' : sh.title,
+                title: first.title,
+                sub: first.subtitle,
+                index: n++,
+                onTap: () => xpOpenShelf(context, first)));
+            if (sh.items.length > 1) {
+              out.add(const SizedBox(height: 12));
+              out.add(_cardRow([
+                for (final it in sh.items.skip(1))
+                  XpCard(
+                    art: xpUrlArt(it.thumbnail),
+                    title: it.title,
+                    sub: it.subtitle,
+                    shape: it.kind == 'artist' ? XpShape.circle : XpShape.square,
+                    onTap: () => xpOpenShelf(context, it),
+                  ),
+              ]));
+            }
+          }
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: out);
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (final sh in shelves)
-              if (sh.items.isNotEmpty) XpShelf(shelf: sh, shapeIndex: k++),
+              if (sh.items.isNotEmpty) XpShelf(shelf: sh, shapeIndex: k++, compact: compact),
           ],
         );
       },
@@ -1711,7 +1958,7 @@ class _XpHomePageState extends State<XpHomePage> {
               title: appState.playlists[i].name,
               sub: '${appState.playlists[i].trackIds.length} songs',
               shape: kXpCardShapes[(i + 3) % kXpCardShapes.length],
-              onTap: () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.local(playlist: appState.playlists[i]))),
+              onTap: () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: appState.playlists[i]))),
             ),
         ]),
       ],
@@ -1723,7 +1970,7 @@ class _XpHomePageState extends State<XpHomePage> {
             title: albums[i].key,
             sub: albums[i].value.first.artist,
             shape: XpShape.square,
-            onTap: () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.custom(
+            onTap: () => Navigator.of(context).push(xpRoute(XpCollectionPage.custom(
                 title: albums[i].key, subtitle: albums[i].value.first.artist, tracks: albums[i].value))),
           ),
       ]),
@@ -1731,8 +1978,8 @@ class _XpHomePageState extends State<XpHomePage> {
   }
 }
 
-Widget _cardRow(List<Widget> cards) => SizedBox(
-      height: 196,
+Widget _cardRow(List<Widget> cards, {double height = 196}) => SizedBox(
+      height: height,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1746,7 +1993,8 @@ Widget _cardRow(List<Widget> cards) => SizedBox(
 class XpShelf extends StatelessWidget {
   final YtShelf shelf;
   final int shapeIndex;
-  const XpShelf({super.key, required this.shelf, required this.shapeIndex});
+  final bool compact;
+  const XpShelf({super.key, required this.shelf, required this.shapeIndex, this.compact = false});
   @override
   Widget build(BuildContext context) {
     final songs = shelf.kind == 'song' || shelf.items.every((i) => i.kind == 'video');
@@ -1783,10 +2031,11 @@ class XpShelf extends StatelessWidget {
               art: xpUrlArt(it.thumbnail),
               title: it.title,
               sub: it.subtitle,
+              size: compact ? 108 : 136,
               shape: it.kind == 'artist' ? XpShape.circle : shape,
               onTap: () => xpOpenShelf(context, it),
             ),
-        ]),
+        ], height: compact ? 166 : 196),
       ],
     );
   }
@@ -1880,9 +2129,15 @@ class _XpButtonGroupState extends State<XpButtonGroup> with TickerProviderStateM
   }
 
   void _down(int i) =>
-      _p[i].animateTo(1, duration: const Duration(milliseconds: 140), curve: Curves.easeOut);
-  void _up(int i) => _p[i].animateWith(SpringSimulation(
-      const SpringDescription(mass: 1, stiffness: 420, damping: 13), _p[i].value, 0, -3));
+      _p[i].animateTo(1, duration: const Duration(milliseconds: 110), curve: Curves.easeOut);
+  Future<void> _up(int i) async {
+    if (_p[i].value < 0.9) {
+      await _p[i].animateTo(1, duration: const Duration(milliseconds: 80), curve: Curves.easeOut);
+    }
+    if (!mounted) return;
+    _p[i].animateWith(SpringSimulation(
+        const SpringDescription(mass: 1, stiffness: 420, damping: 13), _p[i].value, 0, -3));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2298,11 +2553,11 @@ class _XpSearchPageState extends State<XpSearchPage> {
   }
 
   void _openArtist(YtArtist a) => Navigator.of(context)
-      .push(xpRoute(RevivedArtistPage(url: a.url, name: a.name, initialThumb: a.thumbnail)));
+      .push(xpRoute(XpArtistPage(url: a.url, name: a.name, thumbnail: a.thumbnail)));
   void _openAlbum(YtAlbum a) => Navigator.of(context)
-      .push(xpRoute(RevivedAlbumPage(url: a.url, initialTitle: a.title, initialThumb: a.thumbnail)));
+      .push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail)));
   void _openPlaylist(YtPlaylistRef p) => Navigator.of(context)
-      .push(xpRoute(RevivedPlaylistPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail)));
+      .push(xpRoute(XpCollectionPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail)));
 
   @override
   Widget build(BuildContext context) {
@@ -2369,8 +2624,14 @@ class _XpSearchPageState extends State<XpSearchPage> {
             ]),
           ),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
+        AnimatedSize(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeOutBack,
+          child: _q.text.trim().isEmpty
+              ? const SizedBox(width: double.infinity, height: 8)
+              : Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SizedBox(
           height: 38,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
@@ -2386,6 +2647,8 @@ class _XpSearchPageState extends State<XpSearchPage> {
               },
             ),
           ),
+                  ),
+                ),
         ),
         Expanded(
           child: AnimatedSwitcher(
@@ -2806,14 +3069,12 @@ class _XpLibraryPageState extends State<XpLibraryPage> {
       child: Row(children: [
         tile('Liked', '${liked.length} songs', Icons.favorite_rounded, cs.primaryContainer, cs.onPrimaryContainer, cs.primary,
             XpShape.ghost, () {
-          Navigator.of(context).push(xpRoute(appState.homeMode == 'youtube'
-              ? const RevivedPlaylistPage.youtube(playlistId: 'LM', title: 'Liked Music')
-              : RevivedPlaylistPage.custom(title: 'Liked songs', tracks: liked, isLikedStyle: true)));
+          Navigator.of(context).push(xpRoute(const XpCollectionPage.liked()));
         }),
         const SizedBox(width: 10),
         tile('Downloads', '${OfflineStore.count} · ${OfflineStore.formatBytes(OfflineStore.totalBytes)}',
             Icons.download_done_rounded, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, XpShape.clover,
-            () => openDownloads(context)),
+            () => Navigator.of(context).push(xpRoute(const XpCollectionPage.downloads()))),
       ]),
     );
   }
@@ -2832,10 +3093,10 @@ class _XpLibraryPageState extends State<XpLibraryPage> {
             return _list([
               for (final a in snap.data ?? const <YtArtist>[])
                 _LibItem(xpUrlArt(a.thumbnail, icon: Icons.person_rounded), a.name, 'Artist', XpShape.circle,
-                    () => Navigator.of(context).push(xpRoute(RevivedArtistPage(url: a.url, name: a.name, initialThumb: a.thumbnail)))),
+                    () => Navigator.of(context).push(xpRoute(XpArtistPage(url: a.url, name: a.name, thumbnail: a.thumbnail)))),
               for (final e in byArtist.entries)
                 _LibItem(xpTrackArt(e.value.first), e.key, '${e.value.length} songs · On device', XpShape.circle,
-                    () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.custom(title: e.key, subtitle: 'Artist', tracks: e.value)))),
+                    () => Navigator.of(context).push(xpRoute(XpCollectionPage.custom(title: e.key, subtitle: 'Artist', tracks: e.value)))),
             ]);
           },
         );
@@ -2850,10 +3111,10 @@ class _XpLibraryPageState extends State<XpLibraryPage> {
             return _list([
               for (final a in snap.data ?? const <YtAlbum>[])
                 _LibItem(xpUrlArt(a.thumbnail), a.title, a.artist, XpShape.square,
-                    () => Navigator.of(context).push(xpRoute(RevivedAlbumPage(url: a.url, initialTitle: a.title, initialThumb: a.thumbnail)))),
+                    () => Navigator.of(context).push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail)))),
               for (final e in byAlbum.entries)
                 _LibItem(xpTrackArt(e.value.first), e.key, '${e.value.first.artist} · On device', XpShape.square,
-                    () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.custom(title: e.key, subtitle: e.value.first.artist, tracks: e.value)))),
+                    () => Navigator.of(context).push(xpRoute(XpCollectionPage.custom(title: e.key, subtitle: e.value.first.artist, tracks: e.value)))),
             ]);
           },
         );
@@ -2905,11 +3166,11 @@ class _XpLibraryPageState extends State<XpLibraryPage> {
                     appState.playlists[i].name,
                     '${appState.playlists[i].trackIds.length} songs · On device',
                     kXpCardShapes[i % kXpCardShapes.length],
-                    () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.local(playlist: appState.playlists[i])))),
+                    () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: appState.playlists[i])))),
               for (final p in snap.data ?? const <YtPlaylistRef>[])
                 if (p.playlistId != 'LM')
                   _LibItem(xpUrlArt(p.thumbnail), p.title, p.subtitle.isEmpty ? 'YouTube Music' : p.subtitle, XpShape.square,
-                      () => Navigator.of(context).push(xpRoute(RevivedPlaylistPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail)))),
+                      () => Navigator.of(context).push(xpRoute(XpCollectionPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail)))),
             ];
             return Column(children: [
               _heroTiles(context),
@@ -3031,6 +3292,11 @@ class XpYouPage extends StatelessWidget {
                   () => showXpToolsSheet(context, focusSleep: true)),
             ]),
             _group(context, 'Look', [
+              _row(context, Icons.home_rounded, 'Home style',
+                  _xpStyleName(kXpHomeStyles, appState.str('xp_home_style', 'expressive')),
+                  () => showXpChoiceSheet(context, 'Home style', 'xp_home_style', 'expressive', kXpHomeStyles)),
+              _row(context, Icons.space_dashboard_rounded, 'Tab bar', 'Style and which tabs show',
+                  () => Navigator.of(context).push(xpRoute(const XpSettingsPage()))),
               _toggle(context, Icons.palette_rounded, 'Colors from album art', 'The whole app follows the song',
                   appState.b('xp_dynamic', true), (v) => appState.setB('xp_dynamic', v)),
               if (!appState.b('xp_dynamic', true)) _seedPicker(context),
@@ -3044,9 +3310,9 @@ class XpYouPage extends StatelessWidget {
                 }),
             ]),
             _group(context, 'App', [
-              _row(context, Icons.download_rounded, 'Downloads', '${OfflineStore.count} songs', () => openDownloads(context)),
-              _row(context, Icons.tune_rounded, 'More settings', 'Library folders, playback, data and more',
-                  () => openRevivedSettings(context)),
+              _row(context, Icons.download_rounded, 'Downloads', '${OfflineStore.count} songs', () => Navigator.of(context).push(xpRoute(const XpCollectionPage.downloads()))),
+              _row(context, Icons.tune_rounded, 'All settings', 'Tabs, home, playback, data and more',
+                  () => Navigator.of(context).push(xpRoute(const XpSettingsPage()))),
               _row(context, Icons.system_update_rounded, 'Check for updates', 'Version $kAppVersion',
                   () => checkRevivedUpdate(context, manual: true)),
             ]),
@@ -3165,7 +3431,8 @@ class XpYouPage extends StatelessWidget {
 // ═══════════════════════════════ Stats ═══════════════════════════════
 
 class XpStatsPage extends StatefulWidget {
-  const XpStatsPage({super.key});
+  final bool inTab;
+  const XpStatsPage({super.key, this.inTab = false});
   @override
   State<XpStatsPage> createState() => _XpStatsPageState();
 }
@@ -3228,7 +3495,10 @@ class _XpStatsPageState extends State<XpStatsPage> {
             backgroundColor: cs.surface,
             surfaceTintColor: Colors.transparent,
             title: Text('Your stats', style: xpT(30, w: FontWeight.w800)),
-            leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
+            automaticallyImplyLeading: false,
+            leading: widget.inTab
+                ? null
+                : IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
           ),
           SliverToBoxAdapter(
             child: Padding(
@@ -3385,7 +3655,7 @@ class _XpStatsPageState extends State<XpStatsPage> {
                 );
               },
             ),
-          const SliverToBoxAdapter(child: SizedBox(height: 60)),
+          SliverToBoxAdapter(child: SizedBox(height: widget.inTab ? xpBottomPad(context) : 60)),
         ],
       ),
     );
@@ -3942,9 +4212,15 @@ class _XpTransportState extends State<_XpTransport> with TickerProviderStateMixi
     super.dispose();
   }
 
-  void _down(int i) => _p[i].animateTo(1, duration: const Duration(milliseconds: 120), curve: Curves.easeOut);
-  void _up(int i) => _p[i].animateWith(
-      SpringSimulation(const SpringDescription(mass: 1, stiffness: 420, damping: 12), _p[i].value, 0, -3));
+  void _down(int i) => _p[i].animateTo(1, duration: const Duration(milliseconds: 100), curve: Curves.easeOut);
+  Future<void> _up(int i) async {
+    if (_p[i].value < 0.9) {
+      await _p[i].animateTo(1, duration: const Duration(milliseconds: 80), curve: Curves.easeOut);
+    }
+    if (!mounted) return;
+    _p[i].animateWith(
+        SpringSimulation(const SpringDescription(mass: 1, stiffness: 420, damping: 12), _p[i].value, 0, -3));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4851,6 +5127,122 @@ class _XpToolsSheetState extends State<_XpToolsSheet> {
                 if (sleep != null) XpChip(label: 'Turn off', selected: false, onTap: () => audioHandler.setSleepTimer(null)),
               ])),
               const SizedBox(height: 10),
+              const SizedBox(height: 10),
+              _card(context, 'CROSSFADE', crossOn ? '${cross.round()} s' : 'Off', Icons.compare_arrows_rounded,
+                  child: Row(children: [
+                    Switch(value: crossOn, onChanged: (v) => appState.setB('crossfade_on', v)),
+                    Expanded(
+                      child: Slider(
+                        value: cross.clamp(1, 12),
+                        min: 1,
+                        max: 12,
+                        divisions: 11,
+                        onChanged: crossOn ? (v) => appState.setD('crossfade_secs', v) : null,
+                      ),
+                    ),
+                  ])),
+              const SizedBox(height: 10),
+              _card(
+                context,
+                'SPEED & PITCH',
+                currentSoundPreset()?.name ?? '${speed.toStringAsFixed(2)}× · pitch ${appState.pitch.toStringAsFixed(2)}',
+                Icons.speed_rounded,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  XpPress(
+                    onTap: () => applySoundPreset(kSoundPresets.first),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutBack,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: currentSoundPreset()?.name == 'Normal' ? cs.secondaryContainer : cs.primary,
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.restart_alt_rounded,
+                            color: currentSoundPreset()?.name == 'Normal' ? cs.onSecondaryContainer : cs.onPrimary),
+                        const SizedBox(width: 8),
+                        Text(currentSoundPreset()?.name == 'Normal' ? 'Normal speed & pitch' : 'Back to normal',
+                            style: xpT(15.5,
+                                w: FontWeight.w800,
+                                c: currentSoundPreset()?.name == 'Normal' ? cs.onSecondaryContainer : cs.onPrimary)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final p in kSoundPresets.skip(1))
+                      XpChip(
+                        label: p.name,
+                        icon: p.icon,
+                        selected: currentSoundPreset()?.name == p.name,
+                        onTap: () => applySoundPreset(p),
+                      ),
+                  ]),
+                  const SizedBox(height: 12),
+                  XpPress(
+                    onTap: () => appState.setLinkSpeedAndPitch(!appState.linkSpeedAndPitch),
+                    child: Row(children: [
+                      Icon(appState.linkSpeedAndPitch ? Icons.link_rounded : Icons.link_off_rounded, color: cs.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text('Sync speed and pitch',
+                            style: xpT(15, w: FontWeight.w700)),
+                      ),
+                      Switch(
+                        value: appState.linkSpeedAndPitch,
+                        onChanged: (v) => appState.setLinkSpeedAndPitch(v),
+                      ),
+                    ]),
+                  ),
+                  _slider(context, 'Speed', speed, 0.5, 2.0, (v) {
+                    appState.setSpeed(v);
+                    audioHandler.setSpeed(v);
+                    if (appState.linkSpeedAndPitch) {
+                      appState.setPitch(v);
+                      audioHandler.setPitch(v);
+                    }
+                  }),
+                  _slider(context, 'Pitch', appState.pitch, 0.5, 2.0, (v) {
+                    appState.setPitch(v);
+                    audioHandler.setPitch(v);
+                    if (appState.linkSpeedAndPitch) {
+                      appState.setSpeed(v);
+                      audioHandler.setSpeed(v);
+                    }
+                  }),
+                  _slider(context, 'Reverb', appState.d('reverb', 0.0), 0, 1, (v) => setReverbLevel(v, quiet: true),
+                      label: '${(appState.d('reverb', 0.0) * 100).round()}%'),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => applySoundPreset(kSoundPresets.first),
+                      icon: const Icon(Icons.restart_alt_rounded),
+                      label: const Text('Reset'),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: XpPress(
+                    onTap: () => appState.setB('skip_silence', !appState.b('skip_silence')),
+                    child: _pill(context, Icons.fast_forward_rounded, 'Skip silence', appState.b('skip_silence')),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: XpPress(
+                    onTap: () {
+                      Navigator.pop(context);
+                      startOrStepAiDj(openInPlayer: context);
+                    },
+                    child: _pill(context, Icons.graphic_eq_rounded, 'AI DJ', false, tertiary: true),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 10),
               // Equalizer
               _card(
                 context,
@@ -4874,6 +5266,14 @@ class _XpToolsSheetState extends State<_XpToolsSheet> {
                           ]),
                         ),
                         const SizedBox(height: 14),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _resetEq,
+                            icon: const Icon(Icons.restart_alt_rounded),
+                            label: const Text('Reset EQ'),
+                          ),
+                        ),
                         SizedBox(
                           height: 170,
                           child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
@@ -4887,78 +5287,40 @@ class _XpToolsSheetState extends State<_XpToolsSheet> {
                         ),
                       ]),
               ),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                  child: _card(context, 'CROSSFADE', crossOn ? '${cross.round()} s' : 'Off', Icons.compare_arrows_rounded,
-                      child: Column(children: [
-                        Switch(
-                          value: crossOn,
-                          onChanged: (v) => appState.setB('crossfade_on', v),
-                        ),
-                        Slider(
-                          value: cross.clamp(1, 12),
-                          min: 1,
-                          max: 12,
-                          divisions: 11,
-                          onChanged: crossOn ? (v) => appState.setD('crossfade_secs', v) : null,
-                        ),
-                      ])),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _card(context, 'SPEED', '${speed.toStringAsFixed(2)}×', Icons.speed_rounded,
-                      child: Column(children: [
-                        Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
-                          for (final v in [0.75, 1.0, 1.25, 1.5])
-                            XpChip(
-                              label: '$v×',
-                              selected: (speed - v).abs() < 0.01,
-                              onTap: () {
-                                appState.setSpeed(v);
-                                audioHandler.setSpeed(v);
-                              },
-                            ),
-                        ]),
-                      ])),
-                ),
-              ]),
-              const SizedBox(height: 10),
-              _card(context, 'PITCH', appState.pitch.toStringAsFixed(2), Icons.graphic_eq_rounded,
-                  child: Slider(
-                    value: appState.pitch.clamp(0.5, 1.5),
-                    min: 0.5,
-                    max: 1.5,
-                    divisions: 20,
-                    onChanged: (v) {
-                      appState.setPitch(v);
-                      audioHandler.setSpeed(appState.speed);
-                    },
-                  )),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                  child: XpPress(
-                    onTap: () => appState.setB('skip_silence', !appState.b('skip_silence')),
-                    child: _pill(context, Icons.fast_forward_rounded, 'Skip silence', appState.b('skip_silence')),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: XpPress(
-                    onTap: () {
-                      Navigator.pop(context);
-                      startOrStepAiDj(openInPlayer: context);
-                    },
-                    child: _pill(context, Icons.graphic_eq_rounded, 'AI DJ', false, tertiary: true),
-                  ),
-                ),
-              ]),
             ],
           ),
         );
       },
     );
+  }
+
+  Widget _slider(BuildContext context, String name, double v, double lo, double hi, ValueChanged<double> onChanged,
+      {String? label}) {
+    final cs = context.cs;
+    return Row(children: [
+      SizedBox(width: 56, child: Text(name, style: xpT(13.5, c: cs.onSurfaceVariant))),
+      Expanded(
+        child: Slider(
+          value: v.clamp(lo, hi),
+          min: lo,
+          max: hi,
+          divisions: hi > 1.5 ? 30 : 20,
+          onChanged: (x) {
+            HapticFeedback.selectionClick();
+            onChanged(double.parse(x.toStringAsFixed(2)));
+          },
+        ),
+      ),
+      SizedBox(
+        width: 48,
+        child: Text(label ?? '${v.toStringAsFixed(2)}×', textAlign: TextAlign.right, style: xpT(13, w: FontWeight.w700)),
+      ),
+    ]);
+  }
+
+  Future<void> _resetEq() async {
+    await _applyPreset('Flat');
+    HapticFeedback.mediumImpact();
   }
 
   Widget _pill(BuildContext context, IconData icon, String label, bool on, {bool tertiary = false}) {
@@ -5119,6 +5481,1243 @@ void showXpQueueSheet(BuildContext context) {
               ],
             );
           },
+        ),
+      ),
+    ),
+  );
+}
+
+// ═══════════════════════════════ Track menu ═══════════════════════════════
+
+void showXpTrackMenu(BuildContext context, TrackItem t, {Playlist? inPlaylist}) {
+  HapticFeedback.mediumImpact();
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => XpThemed(
+      child: Builder(builder: (ctx) {
+        final cs = ctx.cs;
+        Widget tile(IconData i, String l, VoidCallback f, {bool on = false}) => Expanded(
+              child: XpPress(
+                onTap: () {
+                  Navigator.pop(ctx);
+                  f();
+                },
+                child: Container(
+                  height: 78,
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: on ? cs.primaryContainer : cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(i, color: on ? cs.onPrimaryContainer : cs.onSurface),
+                    const SizedBox(height: 6),
+                    Text(l, textAlign: TextAlign.center, style: xpT(12.5, c: on ? cs.onPrimaryContainer : cs.onSurface)),
+                  ]),
+                ),
+              ),
+            );
+        Widget row(IconData i, String l, VoidCallback f) => XpPress(
+              amount: 0.4,
+              onTap: () {
+                Navigator.pop(ctx);
+                f();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Row(children: [
+                  Icon(i, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 16),
+                  Text(l, style: xpT(16)),
+                ]),
+              ),
+            );
+        final liked = appState.isLiked(t.id);
+        final dl = OfflineStore.isDownloaded(t);
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Row(children: [
+                  XpShaped(shape: XpShape.cookie9, size: 60, child: xpTrackArt(t)),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: xpT(17, w: FontWeight.w800)),
+                      Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: xpT(14, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                    ]),
+                  ),
+                ]),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(children: [
+                  tile(Icons.playlist_play_rounded, 'Play next', () {
+                    audioHandler.addToQueue([t], next: true);
+                    appNotice.value = 'Playing next';
+                  }),
+                  tile(Icons.queue_music_rounded, 'Add to queue', () {
+                    audioHandler.addToQueue([t]);
+                    appNotice.value = 'Added to queue';
+                  }),
+                  tile(liked ? Icons.favorite_rounded : Icons.favorite_border_rounded, liked ? 'Liked' : 'Like',
+                      () => appState.toggleLike(t.id), on: liked),
+                ]),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(children: [
+                  tile(Icons.playlist_add_rounded, 'Add to\nplaylist',
+                      () => t.isYouTube ? showYtAddToPlaylist(context, t) : showAddToPlaylistSheet(context, t)),
+                  if (t.isYouTube)
+                    tile(dl ? Icons.download_done_rounded : Icons.download_rounded, dl ? 'Remove\ndownload' : 'Download',
+                        () => dl ? OfflineStore.delete(t) : OfflineStore.downloadAll([t]), on: dl),
+                  tile(Icons.share_rounded, 'Share', () => shareTrack(t)),
+                ]),
+              ),
+              const SizedBox(height: 8),
+              row(Icons.album_rounded, 'Go to album', () => goToAlbum(context, t)),
+              row(Icons.person_rounded, 'Go to artist', () => goToArtist(context, t)),
+              row(Icons.info_outline_rounded, 'Song info', () => showTrackInfoDialog(context, t)),
+              if (inPlaylist != null)
+                row(Icons.remove_circle_outline_rounded, 'Remove from this playlist',
+                    () => appState.removeFromPlaylist(inPlaylist.id, t.id)),
+              const SizedBox(height: 8),
+            ]),
+          ),
+        );
+      }),
+    ),
+  );
+}
+
+// ═══════════════════════════════ Album / playlist / liked page ═══════════════════════════════
+
+enum XpCollKind { album, ytPlaylist, local, custom, liked, downloads }
+
+class XpCollectionPage extends StatefulWidget {
+  final XpCollKind kind;
+  final String? id; // album url or playlist id
+  final Playlist? playlist;
+  final String? title;
+  final String? subtitle;
+  final String? thumbnail;
+  final List<TrackItem>? tracks;
+
+  const XpCollectionPage.album({super.key, required String url, this.title, this.thumbnail})
+      : kind = XpCollKind.album, id = url, playlist = null, subtitle = null, tracks = null;
+  const XpCollectionPage.youtube({super.key, required String playlistId, this.title, this.thumbnail})
+      : kind = XpCollKind.ytPlaylist, id = playlistId, playlist = null, subtitle = null, tracks = null;
+  const XpCollectionPage.local({super.key, required Playlist this.playlist})
+      : kind = XpCollKind.local, id = null, title = null, subtitle = null, thumbnail = null, tracks = null;
+  const XpCollectionPage.custom({super.key, required this.title, this.subtitle, required this.tracks, this.thumbnail})
+      : kind = XpCollKind.custom, id = null, playlist = null;
+  const XpCollectionPage.liked({super.key})
+      : kind = XpCollKind.liked, id = 'LM', playlist = null, title = 'Liked songs', subtitle = null, thumbnail = null, tracks = null;
+  const XpCollectionPage.downloads({super.key})
+      : kind = XpCollKind.downloads, id = null, playlist = null, title = 'Downloads', subtitle = null, thumbnail = null, tracks = null;
+
+  @override
+  State<XpCollectionPage> createState() => _XpCollectionPageState();
+}
+
+class _XpCollectionPageState extends State<XpCollectionPage> {
+  Future<YtAlbumPage>? _future;
+  YtAlbumPage? _page;
+  String _filter = '';
+  int _sort = 0; // 0 default, 1 title, 2 artist
+  final ScrollController _sc = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    switch (widget.kind) {
+      case XpCollKind.album:
+        _future = YouTubeMusic.album(widget.id!);
+        break;
+      case XpCollKind.ytPlaylist:
+        _page = YouTubeMusic.cachedPlaylistPage(widget.id!, title: widget.title, thumbnail: widget.thumbnail);
+        _future = YouTubeMusic.playlistPage(widget.id!, title: widget.title, thumbnail: widget.thumbnail);
+        break;
+      case XpCollKind.liked:
+        if (ytAccount.value.signedIn) {
+          _page = YouTubeMusic.cachedPlaylistPage('LM', title: 'Liked Music');
+          _future = YouTubeMusic.playlistPage('LM', title: 'Liked Music');
+        }
+        break;
+      default:
+        break;
+    }
+    _future?.then((p) {
+      if (mounted) setState(() => _page = p);
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _sc.dispose();
+    super.dispose();
+  }
+
+  List<TrackItem> get _tracks {
+    switch (widget.kind) {
+      case XpCollKind.local:
+        final pl = appState.playlistById(widget.playlist!.id) ?? widget.playlist!;
+        return [
+          for (final id in pl.trackIds)
+            if (audioHandler.trackById(id) case final t?) t
+        ];
+      case XpCollKind.custom:
+        return widget.tracks ?? const [];
+      case XpCollKind.downloads:
+        return OfflineStore.tracks();
+      case XpCollKind.liked:
+        final local = audioHandler.tracks.where((t) => appState.isLiked(t.id)).toList();
+        final yt = _page?.tracks ?? const <TrackItem>[];
+        final seen = <String>{};
+        return [
+          for (final t in [...yt, ...local])
+            if (seen.add(t.id)) t
+        ];
+      default:
+        return _page?.tracks ?? const [];
+    }
+  }
+
+  String get _title {
+    switch (widget.kind) {
+      case XpCollKind.local:
+        return (appState.playlistById(widget.playlist!.id) ?? widget.playlist!).name;
+      case XpCollKind.album:
+      case XpCollKind.ytPlaylist:
+        return _page?.title ?? widget.title ?? '';
+      default:
+        return widget.title ?? '';
+    }
+  }
+
+  LibItem? get _libItem {
+    if (widget.kind == XpCollKind.album) {
+      return LibItem('album', widget.id!, _title, _page?.artist ?? '', _page?.thumbnail ?? widget.thumbnail);
+    }
+    if (widget.kind == XpCollKind.ytPlaylist && widget.id != 'LM') {
+      return LibItem('playlist', widget.id!, _title, _page?.artist ?? '', _page?.thumbnail ?? widget.thumbnail);
+    }
+    return null;
+  }
+
+  Widget _cover(double size) {
+    final cs = context.cs;
+    switch (widget.kind) {
+      case XpCollKind.liked:
+        return XpShaped(
+          shape: XpShape.burst,
+          size: size,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [cs.primary, cs.tertiary],
+              ),
+            ),
+            child: Icon(Icons.favorite_rounded, color: cs.onPrimary, size: size * 0.38),
+          ),
+        );
+      case XpCollKind.downloads:
+        return XpShaped(
+          shape: XpShape.clover,
+          size: size,
+          child: Container(
+            color: cs.tertiaryContainer,
+            child: Icon(Icons.download_done_rounded, color: cs.onTertiaryContainer, size: size * 0.38),
+          ),
+        );
+      default:
+        final thumb = _page?.thumbnail ?? widget.thumbnail;
+        final t = _tracks;
+        final art = thumb != null
+            ? xpUrlArt(xpHiRes(thumb))
+            : (t.isNotEmpty ? xpTrackArt(t.first, hiRes: true) : xpUrlArt(null, icon: Icons.queue_music_rounded));
+        return XpShaped(
+          shape: widget.kind == XpCollKind.album ? XpShape.square : XpShape.cookie12,
+          size: size,
+          child: art,
+        );
+    }
+  }
+
+  void _more() {
+    final item = _libItem;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => XpThemed(
+        child: Builder(builder: (ctx) {
+          Widget r(IconData i, String l, VoidCallback f) => ListTile(
+                leading: Icon(i),
+                title: Text(l, style: xpT(16)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  f();
+                },
+              );
+          final list = _tracks;
+          return SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              r(Icons.playlist_play_rounded, 'Play next', () => audioHandler.addToQueue(list, next: true)),
+              r(Icons.queue_music_rounded, 'Add all to queue', () => audioHandler.addToQueue(list)),
+              if (item != null)
+                r(LibraryStore.isPinned(item) ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                    LibraryStore.isPinned(item) ? 'Unpin from Library' : 'Pin to Library', () => LibraryStore.togglePin(item)),
+              if (widget.kind == XpCollKind.local) ...[
+                r(Icons.edit_rounded, 'Rename', () => showCreateOrEditPlaylistDialog(context, existing: widget.playlist)),
+                r(Icons.delete_outline_rounded, 'Delete playlist', () {
+                  appState.deletePlaylist(widget.playlist!.id);
+                  Navigator.of(context).maybePop();
+                }),
+              ],
+              if (widget.kind == XpCollKind.album && _page?.artistUrl != null)
+                r(Icons.person_rounded, 'Go to artist', () {
+                  Navigator.of(context).push(xpRoute(XpArtistPage(url: _page!.artistUrl!, name: _page!.artist)));
+                }),
+              const SizedBox(height: 8),
+            ]),
+          );
+        }),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final top = MediaQuery.of(context).padding.top;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, LibraryStore.revision, OfflineStore.revision, audioHandler.currentIndex]),
+      builder: (context, _) {
+        var tracks = _tracks;
+        if (_filter.isNotEmpty) {
+          final f = _filter.toLowerCase();
+          tracks = tracks.where((t) => t.title.toLowerCase().contains(f) || t.artist.toLowerCase().contains(f)).toList();
+        }
+        if (_sort == 1) tracks = [...tracks]..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        if (_sort == 2) tracks = [...tracks]..sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase()));
+        final all = _tracks;
+        final loading = all.isEmpty && _future != null && _page == null;
+        final item = _libItem;
+        final saved = item != null && LibraryStore.isSaved(item);
+        final isAlbum = widget.kind == XpCollKind.album;
+        final mins = all.fold<int>(0, (a, t) => a + t.durationSeconds) ~/ 60;
+        final sub = [
+          if (isAlbum) ...[
+            if ((_page?.kind ?? '').isNotEmpty) _page!.kind!,
+            if ((_page?.artist ?? '').isNotEmpty) _page!.artist,
+          ] else if ((widget.subtitle ?? '').isNotEmpty)
+            widget.subtitle!
+          else if (widget.kind == XpCollKind.local)
+            'Playlist on this phone'
+          else if (widget.kind == XpCollKind.ytPlaylist && (_page?.artist ?? '').isNotEmpty)
+            _page!.artist,
+        ].join(' · ');
+        final info = [
+          '${all.length} ${all.length == 1 ? 'song' : 'songs'}',
+          if (mins > 0) mins >= 60 ? '${mins ~/ 60} hr ${mins % 60} min' : '$mins min',
+        ].join(' · ');
+
+        return Scaffold(
+          backgroundColor: cs.surface,
+          body: Stack(children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              height: 460,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [cs.primaryContainer, cs.surface],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            ListView.builder(
+              controller: _sc,
+              padding: EdgeInsets.only(top: top + 56, bottom: 120 + MediaQuery.of(context).padding.bottom),
+              itemCount: tracks.length + 1 + (isAlbum && (_page?.shelves.isNotEmpty ?? false) ? 1 : 0),
+              itemBuilder: (context, i) {
+                if (i == 0) {
+                  return Column(children: [
+                    XpPopIn(child: _cover(min(260.0, MediaQuery.of(context).size.width - 120))),
+                    const SizedBox(height: 18),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(_title.isEmpty ? ' ' : _title,
+                          textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
+                          style: xpT(28, w: FontWeight.w900, h: 1.1)),
+                    ),
+                    if (sub.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+                        child: GestureDetector(
+                          onTap: isAlbum && _page?.artistUrl != null
+                              ? () => Navigator.of(context)
+                                  .push(xpRoute(XpArtistPage(url: _page!.artistUrl!, name: _page!.artist)))
+                              : null,
+                          child: Text(sub, textAlign: TextAlign.center,
+                              style: xpT(15, w: FontWeight.w700, c: cs.primary)),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
+                      child: isAlbum && _page != null
+                          ? ReleaseDateText(
+                              title: _title,
+                              artist: _page!.artist,
+                              year: _page!.year,
+                              style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant),
+                            )
+                          : Text(loading ? 'Loading…' : info,
+                              style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                    ),
+                    if (isAlbum && _page != null)
+                      Text(info, style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                    const SizedBox(height: 18),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(children: [
+                        if (item != null) ...[
+                          XpPress(
+                            onTap: () {
+                              if (saved) {
+                                LibraryStore.unsave(item);
+                                xpSnack(context, 'Removed from Library');
+                              } else {
+                                LibraryStore.save(item);
+                                xpSnack(context, 'Saved to Library');
+                              }
+                            },
+                            child: XpMorph(
+                              shape: saved ? XpShape.cookie9 : XpShape.circle,
+                              child: Container(
+                                width: 52,
+                                height: 52,
+                                color: saved ? cs.primary : cs.surfaceContainerHighest,
+                                child: Icon(saved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                    color: saved ? cs.onPrimary : cs.onSurface),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        if (widget.kind != XpCollKind.downloads) ...[
+                          XpIconBtn(Icons.download_rounded, size: 52, tip: 'Download', onTap: () {
+                            OfflineStore.downloadAll(all);
+                          }),
+                          const SizedBox(width: 8),
+                        ],
+                        XpIconBtn(Icons.more_horiz_rounded, size: 52, onTap: _more),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: XpButtonGroup(height: 56, items: [
+                            XpGroupItem(Icons.play_arrow_rounded, 'Play', cs.primary, cs.onPrimary, () {
+                              xpPlay(all, 0);
+                              openPlayer(context);
+                            }, weight: 1.2),
+                            XpGroupItem(Icons.shuffle_rounded, '', cs.secondaryContainer, cs.onSecondaryContainer, () {
+                              xpPlay(all, 0, shuffle: true);
+                              openPlayer(context);
+                            }, weight: 0.8),
+                          ]),
+                        ),
+                      ]),
+                    ),
+                    if (!isAlbum && all.length > 8)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                        child: Row(children: [
+                          Expanded(
+                            child: Container(
+                              height: 46,
+                              decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(23)),
+                              child: Row(children: [
+                                const SizedBox(width: 14),
+                                Icon(Icons.search_rounded, color: cs.onSurfaceVariant, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    onChanged: (v) => setState(() => _filter = v),
+                                    style: xpT(15, w: FontWeight.w500),
+                                    decoration: InputDecoration(
+                                      hintText: 'Find in ${widget.kind == XpCollKind.liked ? 'liked songs' : 'playlist'}',
+                                      hintStyle: xpT(15, w: FontWeight.w500, c: cs.onSurfaceVariant),
+                                      border: InputBorder.none,
+                                      isCollapsed: true,
+                                    ),
+                                  ),
+                                ),
+                              ]),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          XpIconBtn(const [Icons.sort_rounded, Icons.sort_by_alpha_rounded, Icons.person_rounded][_sort],
+                              size: 46, tip: const ['Default order', 'Title', 'Artist'][_sort],
+                              onTap: () => setState(() => _sort = (_sort + 1) % 3)),
+                        ]),
+                      ),
+                    const SizedBox(height: 10),
+                    if (loading) const Padding(padding: EdgeInsets.all(30), child: XpLoading()),
+                    if (!loading && all.isEmpty)
+                      _XpEmpty(
+                        icon: widget.kind == XpCollKind.downloads ? Icons.download_rounded : Icons.music_off_rounded,
+                        title: widget.kind == XpCollKind.liked
+                            ? 'No liked songs yet'
+                            : (widget.kind == XpCollKind.downloads ? 'No downloads yet' : 'No songs here'),
+                        sub: widget.kind == XpCollKind.liked ? 'Tap the heart on any song.' : 'Add some music to see it here.',
+                      ),
+                  ]);
+                }
+                final k = i - 1;
+                if (k >= tracks.length) {
+                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    for (final sh in _page!.shelves)
+                      if (sh.items.isNotEmpty) ...[
+                        xpSection(context, sh.title),
+                        _cardRow([
+                          for (final a in sh.items)
+                            XpCard(
+                              art: xpUrlArt(a.thumbnail),
+                              title: a.title,
+                              sub: a.artist,
+                              shape: XpShape.square,
+                              onTap: () => Navigator.of(context)
+                                  .push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail))),
+                            ),
+                        ]),
+                      ],
+                  ]);
+                }
+                final t = tracks[k];
+                final playing = audioHandler.currentTrack?.id == t.id;
+                if (isAlbum) {
+                  return XpPopIn(
+                    index: k,
+                    child: XpPress(
+                      amount: 0.4,
+                      onTap: () => xpPlay(tracks, k),
+                      onLongPress: () => showXpTrackMenu(context, t),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        child: Row(children: [
+                          SizedBox(
+                            width: 30,
+                            child: playing
+                                ? XpEqBars(color: cs.primary)
+                                : Text('${k + 1}', style: xpT(15, c: cs.onSurfaceVariant, w: FontWeight.w700)),
+                          ),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: xpT(16, c: playing ? cs.primary : cs.onSurface)),
+                              Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                            ]),
+                          ),
+                          if (t.durationSeconds > 0)
+                            Text(formatDuration(Duration(seconds: t.durationSeconds)),
+                                style: xpT(13, c: cs.onSurfaceVariant, w: FontWeight.w500)),
+                          IconButton(
+                            icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
+                            onPressed: () => showXpTrackMenu(context, t),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  );
+                }
+                final row = XpPopIn(
+                  index: k,
+                  child: XpSongRow(
+                    track: t,
+                    onTap: () => xpPlay(tracks, k),
+                    inPlaylist: widget.kind == XpCollKind.local ? widget.playlist : null,
+                  ),
+                );
+                if (widget.kind == XpCollKind.downloads) {
+                  return Dismissible(
+                    key: ValueKey('dl${t.id}'),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      color: cs.errorContainer,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 24),
+                      child: Icon(Icons.delete_rounded, color: cs.onErrorContainer),
+                    ),
+                    onDismissed: (_) => OfflineStore.delete(t),
+                    child: row,
+                  );
+                }
+                return row;
+              },
+            ),
+            // Floating top bar
+            Positioned(
+              left: 8,
+              top: top + 4,
+              child: XpIconBtn(Icons.arrow_back_rounded, size: 46, bg: cs.surfaceContainerHigh.withOpacity(0.9),
+                  onTap: () => Navigator.of(context).maybePop()),
+            ),
+            Positioned(
+              right: 8,
+              top: top + 4,
+              child: XpIconBtn(Icons.search_rounded, size: 46, bg: cs.surfaceContainerHigh.withOpacity(0.9),
+                  onTap: () => Navigator.of(context).push(xpRoute(const Scaffold(body: XpSearchPage())))),
+            ),
+            const Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(top: false, child: XpMiniPlayer())),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+// ═══════════════════════════════ Artist ═══════════════════════════════
+
+class XpArtistPage extends StatefulWidget {
+  final String url;
+  final String name;
+  final String? thumbnail;
+  const XpArtistPage({super.key, required this.url, required this.name, this.thumbnail});
+  @override
+  State<XpArtistPage> createState() => _XpArtistPageState();
+}
+
+class _XpArtistPageState extends State<XpArtistPage> {
+  late final Future<YtArtistPage> _f = YouTubeMusic.artist(widget.url, widget.name);
+  late final Future<List<YtAlbum>> _singles =
+      YouTubeMusic.artistDiscography(widget.url, singles: true).catchError((_) => <YtAlbum>[]);
+  bool _allSongs = false;
+  bool _aboutOpen = false;
+
+  void _openAlbum(YtAlbum a) =>
+      Navigator.of(context).push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail)));
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final top = MediaQuery.of(context).padding.top;
+    final w = MediaQuery.of(context).size.width;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: Stack(children: [
+        FutureBuilder<YtArtistPage>(
+          future: _f,
+          builder: (context, snap) {
+            final p = snap.data;
+            final thumb = p?.banner ?? p?.thumbnail ?? widget.thumbnail;
+            final songs = p?.songs ?? const <TrackItem>[];
+            final shown = _allSongs ? songs : songs.take(5).toList();
+            final followers = p?.audience ?? p?.subscribersText;
+            return ListenableBuilder(
+              listenable: audioHandler.currentIndex,
+              builder: (context, _) => ListView(
+                padding: EdgeInsets.only(bottom: 140 + MediaQuery.of(context).padding.bottom),
+                children: [
+                  SizedBox(
+                    height: w * 0.95,
+                    child: Stack(fit: StackFit.expand, children: [
+                      xpUrlArt(xpHiRes(thumb), icon: Icons.person_rounded),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.black.withOpacity(0.3), Colors.transparent, cs.surface],
+                            stops: const [0, 0.45, 1],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 20,
+                        right: 20,
+                        bottom: 10,
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(p?.name ?? widget.name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                              style: xpT(44, w: FontWeight.w900, h: 1.0, c: Colors.white).copyWith(shadows: const [
+                                Shadow(color: Colors.black54, blurRadius: 20),
+                              ])),
+                          if (followers != null && followers.isNotEmpty)
+                            Text(followers, style: xpT(14, c: Colors.white70, w: FontWeight.w700)),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(children: [
+                      Expanded(
+                        child: XpButtonGroup(height: 56, items: [
+                          XpGroupItem(Icons.play_arrow_rounded, 'Play', cs.primary, cs.onPrimary, () {
+                            if (songs.isEmpty) return;
+                            xpPlay(songs, 0);
+                            openPlayer(context);
+                          }, weight: 1.3),
+                          XpGroupItem(Icons.shuffle_rounded, 'Shuffle', cs.secondaryContainer, cs.onSecondaryContainer, () {
+                            if (songs.isEmpty) return;
+                            xpPlay(songs, 0, shuffle: true);
+                            openPlayer(context);
+                          }),
+                        ]),
+                      ),
+                      const SizedBox(width: 8),
+                      XpIconBtn(Icons.share_rounded, size: 56, radius: 18, onTap: () {
+                        Clipboard.setData(ClipboardData(text: widget.url.startsWith('http')
+                            ? widget.url
+                            : 'https://music.youtube.com/channel/${widget.url}'));
+                        xpSnack(context, 'Artist link copied');
+                      }),
+                    ]),
+                  ),
+                  if (p == null && snap.connectionState == ConnectionState.waiting)
+                    const Padding(padding: EdgeInsets.all(40), child: Center(child: XpLoading())),
+                  if (songs.isNotEmpty) ...[
+                    xpSection(context, 'Top songs',
+                        action: songs.length > 5 ? (_allSongs ? 'Show less' : 'Show all') : null,
+                        onAction: () => setState(() => _allSongs = !_allSongs)),
+                    for (var i = 0; i < shown.length; i++)
+                      XpPopIn(
+                        index: i,
+                        child: XpSongRow(
+                          track: shown[i],
+                          subtitle: p?.plays[shown[i].id] ?? shown[i].album,
+                          leading: SizedBox(
+                            width: 22,
+                            child: Text('${i + 1}', style: xpT(15, c: cs.primary, w: FontWeight.w900)),
+                          ),
+                          onTap: () => xpPlay(songs, i),
+                        ),
+                      ),
+                  ],
+                  if ((p?.albums ?? const []).isNotEmpty) ...[
+                    xpSection(context, 'Albums',
+                        action: 'See all',
+                        onAction: () => Navigator.of(context)
+                            .push(xpRoute(XpDiscographyPage(url: widget.url, name: p!.name, singles: false)))),
+                    _cardRow([
+                      for (final a in p!.albums)
+                        XpCard(art: xpUrlArt(a.thumbnail), title: a.title, sub: a.artist, shape: XpShape.square,
+                            onTap: () => _openAlbum(a)),
+                    ]),
+                  ],
+                  FutureBuilder<List<YtAlbum>>(
+                    future: _singles,
+                    builder: (context, s) {
+                      final list = s.data ?? const <YtAlbum>[];
+                      if (list.isEmpty) return const SizedBox.shrink();
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        xpSection(context, 'Singles & EPs',
+                            action: 'See all',
+                            onAction: () => Navigator.of(context)
+                                .push(xpRoute(XpDiscographyPage(url: widget.url, name: p?.name ?? widget.name, singles: true)))),
+                        _cardRow([
+                          for (var i = 0; i < list.length; i++)
+                            XpCard(
+                                art: xpUrlArt(list[i].thumbnail),
+                                title: list[i].title,
+                                sub: list[i].artist,
+                                shape: kXpCardShapes[i % kXpCardShapes.length],
+                                onTap: () => _openAlbum(list[i])),
+                        ]),
+                      ]);
+                    },
+                  ),
+                  for (final sh in p?.shelves ?? const <YtShelf>[])
+                    if (sh.items.isNotEmpty) XpShelf(shelf: sh, shapeIndex: sh.title.length),
+                  if ((p?.description ?? '').isNotEmpty) ...[
+                    xpSection(context, 'About'),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: XpPress(
+                        amount: 0.3,
+                        onTap: () => setState(() => _aboutOpen = !_aboutOpen),
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 380),
+                          curve: Curves.easeOutBack,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(28)),
+                            child: Text(p!.description!,
+                                maxLines: _aboutOpen ? null : 4,
+                                overflow: _aboutOpen ? null : TextOverflow.ellipsis,
+                                style: xpT(14.5, w: FontWeight.w500, h: 1.45)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+        Positioned(
+          left: 8,
+          top: top + 4,
+          child: XpIconBtn(Icons.arrow_back_rounded, size: 46, bg: cs.surfaceContainerHigh.withOpacity(0.85),
+              onTap: () => Navigator.of(context).maybePop()),
+        ),
+        const Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(top: false, child: XpMiniPlayer())),
+      ]),
+    );
+  }
+}
+
+/// Every album (or single) by an artist, newest first.
+class XpDiscographyPage extends StatelessWidget {
+  final String url;
+  final String name;
+  final bool singles;
+  const XpDiscographyPage({super.key, required this.url, required this.name, required this.singles});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: FutureBuilder<List<YtAlbum>>(
+        future: YouTubeMusic.artistDiscography(url, singles: singles),
+        builder: (context, snap) {
+          final list = snap.data ?? const <YtAlbum>[];
+          return CustomScrollView(slivers: [
+            SliverAppBar.large(
+              backgroundColor: cs.surface,
+              surfaceTintColor: Colors.transparent,
+              title: Text(singles ? 'Singles & EPs' : 'Albums', style: xpT(30, w: FontWeight.w800)),
+              leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
+            ),
+            if (snap.connectionState == ConnectionState.waiting)
+              const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(40), child: Center(child: XpLoading())))
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 60),
+                sliver: SliverGrid.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2, mainAxisSpacing: 16, crossAxisSpacing: 14, childAspectRatio: 0.78),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) => XpPopIn(
+                    index: i,
+                    child: XpPress(
+                      amount: 0.6,
+                      onTap: () => Navigator.of(context).push(xpRoute(
+                          XpCollectionPage.album(url: list[i].url, title: list[i].title, thumbnail: list[i].thumbnail))),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(child: XpShaped(shape: XpShape.square, child: SizedBox.expand(child: xpUrlArt(list[i].thumbnail)))),
+                        const SizedBox(height: 8),
+                        Text(list[i].title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(14.5)),
+                        Text(list[i].artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: xpT(12.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════ Settings ═══════════════════════════════
+
+const List<(String, String, String, IconData)> kXpHomeStyles = [
+  ('expressive', 'Expressive', 'Big carousel, button group, stats card and shaped mixes', Icons.auto_awesome_rounded),
+  ('compact', 'Compact', 'Quick-pick tiles up top and tighter rows, more on one screen', Icons.view_compact_rounded),
+  ('magazine', 'Magazine', 'Huge feature cards, one per section', Icons.view_agenda_rounded),
+  ('grid', 'Grid', 'Everything as a big tile grid', Icons.grid_view_rounded),
+];
+
+const List<(String, String, String, IconData)> kXpNavStyles = [
+  ('docked', 'Docked', 'Classic bar across the bottom with labels', Icons.call_to_action_rounded),
+  ('floating', 'Floating', 'A floating pill toolbar, labels on the selected tab', Icons.space_bar_rounded),
+  ('icons', 'Icons only', 'A slim bar with just icons', Icons.more_horiz_rounded),
+];
+
+String _xpStyleName(List<(String, String, String, IconData)> list, String key) =>
+    list.firstWhere((s) => s.$1 == key, orElse: () => list.first).$2;
+
+void showXpChoiceSheet(BuildContext context, String title, String prefKey, String def,
+    List<(String, String, String, IconData)> options) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => XpThemed(
+      child: ListenableBuilder(
+        listenable: appState,
+        builder: (ctx, _) {
+          final cs = ctx.cs;
+          final cur = appState.str(prefKey, def);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+                  child: Text(title, style: xpT(24, w: FontWeight.w800)),
+                ),
+                for (var i = 0; i < options.length; i++)
+                  XpPopIn(
+                    index: i,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: XpPress(
+                        onTap: () => appState.setStr(prefKey, options[i].$1),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 320),
+                          curve: Curves.easeOutBack,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: cur == options[i].$1 ? cs.primaryContainer : cs.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(cur == options[i].$1 ? 30 : 18),
+                          ),
+                          child: Row(children: [
+                            XpMorph(
+                              shape: cur == options[i].$1 ? XpShape.cookie9 : XpShape.square,
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                color: cur == options[i].$1 ? cs.primary : cs.secondaryContainer,
+                                child: Icon(options[i].$4,
+                                    color: cur == options[i].$1 ? cs.onPrimary : cs.onSecondaryContainer),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(options[i].$2,
+                                    style: xpT(16.5, w: FontWeight.w800,
+                                        c: cur == options[i].$1 ? cs.onPrimaryContainer : cs.onSurface)),
+                                Text(options[i].$3,
+                                    style: xpT(12.5, w: FontWeight.w500,
+                                        c: cur == options[i].$1 ? cs.onPrimaryContainer.withOpacity(0.8) : cs.onSurfaceVariant)),
+                              ]),
+                            ),
+                            AnimatedScale(
+                              scale: cur == options[i].$1 ? 1 : 0,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOutBack,
+                              child: Icon(Icons.check_circle_rounded, color: cs.primary),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
+
+class XpSettingsPage extends StatelessWidget {
+  const XpSettingsPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: ListenableBuilder(
+        listenable: Listenable.merge([appState, ytAccount, audioHandler.sleepLabel]),
+        builder: (context, _) {
+          final acc = ytAccount.value;
+          return CustomScrollView(slivers: [
+            SliverAppBar.large(
+              backgroundColor: cs.surface,
+              surfaceTintColor: Colors.transparent,
+              title: Text('Settings', style: xpT(30, w: FontWeight.w800)),
+              leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
+            ),
+            SliverToBoxAdapter(
+              child: Column(children: [
+                xpSettingsGroup(context, 'Home & tabs', [
+                  xpSettingsRow(context, Icons.home_rounded, 'Home style',
+                      _xpStyleName(kXpHomeStyles, appState.str('xp_home_style', 'expressive')),
+                      () => showXpChoiceSheet(context, 'Home style', 'xp_home_style', 'expressive', kXpHomeStyles)),
+                  xpSettingsRow(context, Icons.space_dashboard_rounded, 'Tab bar style',
+                      _xpStyleName(kXpNavStyles, appState.str('xp_nav_style', 'docked')),
+                      () => showXpChoiceSheet(context, 'Tab bar style', 'xp_nav_style', 'docked', kXpNavStyles)),
+                  xpSettingsToggle(context, Icons.insights_rounded, 'Stats tab', 'Show your stats as a tab',
+                      appState.b('xp_tab_stats'), (v) => appState.setB('xp_tab_stats', v)),
+                  xpSettingsToggle(context, Icons.auto_awesome_rounded, 'AI tab', 'Chat with AI from the tab bar',
+                      appState.b('xp_tab_ai'), (v) => appState.setB('xp_tab_ai', v)),
+                  xpSettingsToggle(context, Icons.search_rounded, 'Search tab', 'Turn off to search from the top of Home',
+                      appState.b('xp_tab_search', true), (v) => appState.setB('xp_tab_search', v)),
+                  xpSettingsRow(context, Icons.start_rounded, 'Open the app on',
+                      const {'home': 'Home', 'library': 'Library', 'search': 'Search'}[appState.str('xp_start_tab', 'home')] ?? 'Home',
+                      () => showXpChoiceSheet(context, 'Open the app on', 'xp_start_tab', 'home', const [
+                            ('home', 'Home', 'Your feed and mixes', Icons.home_rounded),
+                            ('library', 'Library', 'Your playlists and saved music', Icons.library_music_rounded),
+                            ('search', 'Search', 'Straight to the search bar', Icons.search_rounded),
+                          ])),
+                ]),
+                xpSettingsGroup(context, 'Player', [
+                  xpSettingsRow(context, Icons.style_rounded, 'Player style',
+                      xpPlayerStyleName(appState.str('xp_player', 'expressive')), () => showXpPlayerStylePicker(context)),
+                  xpSettingsToggle(context, Icons.crop_square_rounded, 'Rounded square album art', 'Or tap the art in the player',
+                      appState.str('xp_art_shape', 'cookie') == 'square',
+                      (v) => appState.setStr('xp_art_shape', v ? 'square' : 'cookie')),
+                  xpSettingsRow(context, Icons.equalizer_rounded, 'Sound & tools', 'EQ, speed, pitch, crossfade',
+                      () => showXpToolsSheet(context)),
+                  xpSettingsRow(context, Icons.bedtime_rounded, 'Sleep timer', audioHandler.sleepLabel.value ?? 'Off',
+                      () => showXpToolsSheet(context, focusSleep: true)),
+                ]),
+                xpSettingsGroup(context, 'Playback', [
+                  xpSettingsToggle(context, Icons.blur_on_rounded, 'Smooth play & pause', 'Fade the volume gently',
+                      appState.b('smooth_fade'), (v) => appState.setB('smooth_fade', v)),
+                  xpSettingsToggle(context, Icons.fast_forward_rounded, 'Skip silence', 'Trim quiet gaps',
+                      appState.b('skip_silence'), (v) => appState.setB('skip_silence', v)),
+                  xpSettingsToggle(context, Icons.headset_off_rounded, 'Pause on disconnect', 'When headphones unplug',
+                      appState.b('pause_on_unplug', true), (v) => appState.setB('pause_on_unplug', v)),
+                  xpSettingsToggle(context, Icons.radio_rounded, 'Autoplay radio', 'Keep playing similar songs at the end',
+                      appState.b('autoplay_radio'), (v) => appState.setB('autoplay_radio', v)),
+                  xpSettingsToggle(context, Icons.bolt_rounded, 'Prefetch next song', 'Instant skips',
+                      appState.b('prefetch_next', true), (v) => appState.setB('prefetch_next', v)),
+                ]),
+                xpSettingsGroup(context, 'Look', [
+                  xpSettingsToggle(context, Icons.palette_rounded, 'Colors from album art', 'The whole app follows the song',
+                      appState.b('xp_dynamic', true), (v) => appState.setB('xp_dynamic', v)),
+                  xpSettingsToggle(context, Icons.speed_rounded, 'High refresh rate', 'Smoother animations',
+                      appState.b('high_refresh', true), (v) {
+                    appState.setB('high_refresh', v);
+                    applyNativeSettings();
+                  }),
+                ]),
+                xpSettingsGroup(context, 'Account & data', [
+                  xpSettingsRow(context, Icons.account_circle_rounded,
+                      acc.signedIn ? (acc.name ?? 'YouTube Music') : 'Sign in to YouTube Music',
+                      acc.signedIn ? 'Connected' : 'Sync playlists and likes', () => showYtAccountSheet(context)),
+                  xpSettingsRow(context, Icons.download_rounded, 'Downloads',
+                      '${OfflineStore.count} songs · ${OfflineStore.formatBytes(OfflineStore.totalBytes)}',
+                      () => Navigator.of(context).push(xpRoute(const XpCollectionPage.downloads()))),
+                  xpSettingsToggle(context, Icons.data_saver_on_rounded, 'Data saver', 'Lower quality on mobile data',
+                      appState.b('yt_data_saver'), (v) {
+                    appState.setB('yt_data_saver', v);
+                    applyNativeSettings();
+                  }),
+                  xpSettingsRow(context, Icons.playlist_add_rounded, 'Import from Spotify', 'Bring playlists over',
+                      () => openSpotifyImport(context)),
+                  xpSettingsRow(context, Icons.cleaning_services_rounded, 'Clear stream cache', 'Free up space', () async {
+                    try {
+                      await const MethodChannel('com.alexlmp.app/ytmusic').invokeMethod('ytClearCache');
+                    } catch (_) {}
+                    if (context.mounted) xpSnack(context, 'Cache cleared');
+                  }),
+                ]),
+                xpSettingsGroup(context, 'About', [
+                  xpSettingsRow(context, Icons.system_update_rounded, 'Check for updates', 'Version $kAppVersion',
+                      () => checkRevivedUpdate(context, manual: true)),
+                  xpSettingsRow(context, Icons.restart_alt_rounded, 'Run setup again', 'Permissions and sign-in', () {
+                    appState.setB('setup_done', false);
+                    Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const RevivedSetupScreen()), (_) => false);
+                  }),
+                ]),
+                SizedBox(height: 40 + MediaQuery.of(context).padding.bottom),
+              ]),
+            ),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+Widget xpSettingsGroup(BuildContext context, String title, List<Widget> rows) {
+  final cs = context.cs;
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.only(left: 8, bottom: 8),
+        child: Text(title, style: xpT(14, c: cs.primary, w: FontWeight.w800)),
+      ),
+      for (var i = 0; i < rows.length; i++)
+        Container(
+          margin: const EdgeInsets.only(bottom: 3),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainer,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(i == 0 ? 24 : 6),
+              bottom: Radius.circular(i == rows.length - 1 ? 24 : 6),
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: rows[i],
+        ),
+    ]),
+  );
+}
+
+Widget _xpSettingsIcon(BuildContext context, IconData icon) {
+  final cs = context.cs;
+  return XpShaped(
+    shape: XpShape.cookie9,
+    size: 42,
+    child: Container(color: cs.secondaryContainer, child: Icon(icon, color: cs.onSecondaryContainer, size: 21)),
+  );
+}
+
+Widget xpSettingsRow(BuildContext context, IconData icon, String t, String s, VoidCallback onTap) {
+  final cs = context.cs;
+  return XpPress(
+    amount: 0.35,
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(children: [
+        _xpSettingsIcon(context, icon),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t, style: xpT(16)),
+            Text(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+          ]),
+        ),
+        Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+      ]),
+    ),
+  );
+}
+
+Widget xpSettingsToggle(BuildContext context, IconData icon, String t, String s, bool v, ValueChanged<bool> onChanged) {
+  final cs = context.cs;
+  return XpPress(
+    amount: 0.35,
+    onTap: () => onChanged(!v),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(children: [
+        _xpSettingsIcon(context, icon),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t, style: xpT(16)),
+            Text(s, style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+          ]),
+        ),
+        Switch(
+          value: v,
+          onChanged: onChanged,
+          thumbIcon: WidgetStatePropertyAll(Icon(v ? Icons.check_rounded : Icons.close_rounded, size: 16)),
+        ),
+      ]),
+    ),
+  );
+}
+
+// ═══════════════════════════════ Other home styles ═══════════════════════════════
+
+/// Compact quick-pick tiles (2 columns).
+Widget xpQuickTiles(BuildContext context, List<(Widget, String, VoidCallback)> items) {
+  final cs = context.cs;
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+    child: GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      childAspectRatio: 3.1,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          XpPopIn(
+            index: i,
+            child: XpPress(
+              amount: 0.6,
+              onTap: items[i].$3,
+              child: Container(
+                decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(16)),
+                clipBehavior: Clip.antiAlias,
+                child: Row(children: [
+                  AspectRatio(aspectRatio: 1, child: items[i].$1),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(items[i].$2, maxLines: 2, overflow: TextOverflow.ellipsis, style: xpT(13.5, w: FontWeight.w700)),
+                  ),
+                  const SizedBox(width: 6),
+                ]),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+/// Magazine: one huge feature card.
+Widget xpFeatureCard(BuildContext context, {required Widget art, required String kicker, required String title,
+    required String sub, required VoidCallback onTap, int index = 0}) {
+  final cs = context.cs;
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+    child: XpPopIn(
+      index: index,
+      child: XpPress(
+        amount: 0.5,
+        onTap: onTap,
+        child: AspectRatio(
+          aspectRatio: 1.05,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(index.isEven ? 36 : 28),
+            child: Stack(fit: StackFit.expand, children: [
+              art,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                    stops: const [0.35, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 18,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(kicker.toUpperCase(), style: xpT(11.5, c: Colors.white70, ls: 1, w: FontWeight.w800)),
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: xpT(28, c: Colors.white, w: FontWeight.w900, h: 1.05)),
+                  if (sub.isNotEmpty)
+                    Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(14, c: Colors.white70)),
+                ]),
+              ),
+              Positioned(
+                right: 16,
+                top: 16,
+                child: XpShaped(
+                  shape: XpShape.cookie9,
+                  size: 52,
+                  child: Container(color: cs.primary, child: Icon(Icons.arrow_outward_rounded, color: cs.onPrimary)),
+                ),
+              ),
+            ]),
+          ),
         ),
       ),
     ),
