@@ -492,7 +492,7 @@ jobs:
                   old_id = match.group(2)
                   new_id = old_id if old_id.endswith('.revived') else old_id + '.revived'
                   return match.group(1) + new_id + match.group(3)
-              new_txt = re.sub(r'(applicationId\s*=?\s*["'])([^"']+)(["'])', repl, txt, count=1)
+              new_txt = re.sub(r"(applicationId\s*=?\s*[\x27\x22])([^\x27\x22]+)([\x27\x22])", repl, txt, count=1)
               if new_id:
                   open(g, 'w', encoding='utf-8').write(new_txt)
                   print(f'Updated {g}: {old_id} -> {new_id}')
