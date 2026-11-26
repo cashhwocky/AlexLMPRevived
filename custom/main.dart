@@ -23,6 +23,7 @@ import 'ai_music_chat.dart';
 import 'tab_dock.dart';
 import 'tidal_style.dart';
 import 'revived_shell.dart';
+import 'expressive.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Globals
@@ -1079,6 +1080,7 @@ class TrackItem {
 
 class MyAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer player = AudioPlayer(
+    audioPipeline: AudioPipeline(androidAudioEffects: [xpEqualizer]),
     handleInterruptions: true,
     androidApplyAudioAttributes: true,
     handleAudioSessionActivation: true,
@@ -4361,7 +4363,7 @@ void openPlayer(BuildContext context, {bool force = false}) {
       opaque: false,
       transitionDuration: const Duration(milliseconds: 600),
       reverseTransitionDuration: const Duration(milliseconds: 420),
-      pageBuilder: (_, __, ___) => const RevivedPlayerScreen(),
+      pageBuilder: (_, __, ___) => const XpPlayerScreen(),
       transitionsBuilder: (_, anim, __, child) {
         final curved = CurvedAnimation(
           parent: anim,
@@ -4563,7 +4565,7 @@ class _AlexLmpRootState extends State<AlexLmpRoot> {
         _dockOverlay = true;
 
         if (true) {
-          return RevivedAppShell(tracks: tracks, aiChatBuilder: _aiPageStd);
+          return XpShell(aiChatBuilder: _aiPageStd);
         }
         if (appState.appStyle == 'bloom') {
           return _bloomScaffold(context, pal, tracks);
@@ -30898,7 +30900,7 @@ class _ClockPainter extends CustomPainter {
 // When you publish a release: bump kAppVersion here to the SAME number as the
 // release tag (tag v2.2.0  ->  kAppVersion '2.2.0').
 
-const String kAppVersion = '1.0.0';
+const String kAppVersion = '2.0.0';
 /// "Support my project" card at the very top of Settings.
 class SupportCard extends StatefulWidget {
   const SupportCard({super.key});
@@ -40263,3 +40265,7 @@ const List<List<double>> kPixelIconRects = [
   [68.70, 76.50, 1.22, 1.22, 3],
   [69.90, 76.50, 1.22, 1.22, 3],
 ];
+
+
+/// Equalizer on the main player (Sound & tools in AlexLMP Revived).
+final AndroidEqualizer xpEqualizer = AndroidEqualizer();
