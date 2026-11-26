@@ -1,7 +1,25 @@
 All your music, one player.
 
-AlexLMP Revived 2.0 is a complete redesign in Material 3 Expressive.
+AlexLMP Revived 2.1 brings the new look to every screen.
 
+## New
+- **Albums, singles, playlists and Liked songs** are rebuilt in the new style: big shaped cover, Play / Shuffle buttons, save, download and more. Albums show the exact release date and more from the artist. Playlists and Liked songs have a search box and sorting.
+- **New artist pages** with a big photo, top songs (with Show all), albums, singles and EPs, related artists and an About section. "See all" lists everything they've released.
+- **4 Home styles:** Expressive, Compact, Magazine and Grid. Pick one in You > Look or in Settings.
+- **Tab bar options:** Docked, Floating or Icons only. Add a Stats tab or an AI tab, hide the Search tab, and choose which tab the app opens on.
+- **New song menu** with Play next, Add to queue, Like, Add to playlist, Download, Go to album/artist and Song info.
+- **New Settings page** with everything in one place.
+- **Speed & pitch:** a Back to normal button, Sped Up, Slowed Down, Nightcore and Slowed & Reverb presets, a switch to sync speed and pitch, and a reverb slider.
+- **EQ reset button.**
+
+## Fixed
+- The heart on album pages now saves the album to your Library (it used to like only the first song).
+- Pitch changes right away instead of waiting for the next song.
+- Every button squishes on a quick tap, not just when you hold it.
+- The equalizer moved to the bottom of Sound & tools so you don't drag it by accident while scrolling.
+- Search no longer shows the Songs / Albums / Artists filters before you've typed anything.
+
+## From 2.0
 ## New look
 - **Colors from your music.** The whole app takes its colors from the song that's playing and fades smoothly to the next song's colors. You can turn this off and pick a color in You > Look.
 - **Squishy, springy everything.** Buttons, cards and tabs squish when you press them and bounce back. Shapes morph, lists pop in, and screens glide between tabs.
