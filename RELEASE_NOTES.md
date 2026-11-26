@@ -1,3 +1,29 @@
+# AlexLMP Revived 2.2.1
+
+- New default player that matches Play Music: song header with queue and menu, edge-to-edge album art with repeat, lyrics and shuffle on it, thin orange seek bar, and the thumbs up / thumbs down control row
+- The player follows your theme: light by default, dark when dark theme is on
+- Thumbs down skips the song
+- Fixed the Play Music layout not picking up the light theme and Play Music orange everywhere
+
+If you enjoy the app, consider supporting development. <3
+
+# AlexLMP Revived 2.2
+
+## Play Music, modernized
+- New default layout inspired by Google Play Music: Home, Recents, Library and Browse, plus a side menu
+- Light theme with the classic Play Music orange (dark theme and album-art colors are in Settings > Look)
+- Home: I'm Feeling Lucky instant mix, big Listen again collage cards, and rows of cards with play buttons
+- Recents: everything you played and saved, in a card grid
+- Library: Playlists, Artists, Albums, Songs and Genres tabs, with Auto playlists (Thumbs up, Last added, Downloaded) and a new playlist button
+- Browse: Top charts, New releases, and Genres & moods tiles
+- Search opens from the top bar with a back arrow
+- New Play Music player style (now the default) with thumbs up and the classic control row
+- Settings has a new Look section; the previous Expressive layout is still available under Layout
+
+Everything still squishes.
+
+If you enjoy the app, consider supporting development. <3
+
 All your music, one player.
 
 AlexLMP Revived 2.1 brings the new look to every screen.

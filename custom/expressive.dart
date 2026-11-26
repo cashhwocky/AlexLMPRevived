@@ -50,6 +50,10 @@ int _xpSeq = 0;
 void xpInit() {
   if (_xpInited) return;
   _xpInited = true;
+  if (!appState.b('pm_player_v1')) {
+    appState.setB('pm_player_v1', true);
+    appState.setStr('xp_player', 'playmusic');
+  }
   audioHandler.currentIndex.addListener(xpRefreshColors);
   appState.addListener(_xpSettingsChanged);
   xpRefreshColors();
@@ -3866,7 +3870,7 @@ class XpPlayerScreen extends StatelessWidget {
             backgroundColor: cs.surface,
             body: _XpSwipeDown(
               child: Stack(children: [
-                const Positioned.fill(child: _XpPlayerBackdrop()),
+                if (style != 'playmusic') const Positioned.fill(child: _XpPlayerBackdrop()),
                 Positioned.fill(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 420),
@@ -6808,6 +6812,12 @@ class _PmShellState extends State<PmShell> {
 
   void _openDrawer() => _key.currentState?.openDrawer();
 
+  @override
+  void initState() {
+    super.initState();
+    xpInit();
+  }
+
   Widget _page(int i) {
     switch (i) {
       case 1:
@@ -6822,7 +6832,9 @@ class _PmShellState extends State<PmShell> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => XpThemed(child: Builder(builder: _build));
+
+  Widget _build(BuildContext context) {
     final cs = context.cs;
     final light = cs.brightness == Brightness.light;
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
@@ -7853,49 +7865,187 @@ class PmBrowsePage extends StatelessWidget {
 }
 
 // ── Play Music player style ──
+// The classic Play Music player: header with small art, edge-to-edge art with
+// repeat / lyrics / shuffle over its bottom, thin seek bar, thumbs row.
 class _PmPlayer extends StatelessWidget {
   final TrackItem track;
   const _PmPlayer({required this.track});
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes, s = d.inSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final t = track;
     return LayoutBuilder(builder: (context, c) {
-      final art = min(c.maxWidth - 32, c.maxHeight * 0.48);
+      final art = min(c.maxWidth, max(160.0, c.maxHeight - 330));
       return Column(children: [
-        _xpTopBar(context, t),
-        const SizedBox(height: 6),
-        Center(child: XpPlayerArt(track: t, size: art, forceShape: XpShape.square)),
-        const Spacer(),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: _xpTitle(context, t, center: true, size: 24),
-        ),
-        const SizedBox(height: 14),
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 22), child: XpWaveSeek()),
-        const Spacer(),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          ListenableBuilder(
-            listenable: appState,
-            builder: (context, _) {
-              final liked = appState.isLiked(t.id);
-              return XpIconBtn(liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
-                  size: 52,
-                  bg: liked ? cs.primaryContainer : Colors.transparent,
-                  fg: liked ? cs.onPrimaryContainer : cs.onSurfaceVariant,
-                  tip: 'Thumbs up',
-                  onTap: () => appState.toggleLike(t.id));
-            },
+        // Header
+        XpPress(
+          amount: 0.3,
+          onTap: () => Navigator.maybePop(context),
+          child: Container(
+            height: 76,
+            color: cs.surface,
+            child: Row(children: [
+              SizedBox(width: 76, height: 76, child: xpTrackArt(t)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(17, w: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: xpT(14.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                ]),
+              ),
+              IconButton(icon: Icon(Icons.queue_music_rounded, color: cs.onSurface), tooltip: 'Queue',
+                  onPressed: () => showXpQueueSheet(context)),
+              IconButton(icon: Icon(Icons.more_vert_rounded, color: cs.onSurface), tooltip: 'More',
+                  onPressed: () => _xpMoreSheet(context, t)),
+              const SizedBox(width: 4),
+            ]),
           ),
-          XpIconBtn(Icons.skip_previous_rounded, size: 58, bg: Colors.transparent, onTap: audioHandler.skipToPrevious),
-          const XpPlayButton(size: 84, pausedShape: XpShape.circle, playingShape: XpShape.cookie9),
-          XpIconBtn(Icons.skip_next_rounded, size: 58, bg: Colors.transparent, onTap: audioHandler.skipToNext),
-          XpIconBtn(Icons.playlist_add_rounded, size: 52, bg: Colors.transparent, fg: cs.onSurfaceVariant, tip: 'Add to playlist',
-              onTap: () => t.isYouTube ? showYtAddToPlaylist(context, t) : showAddToPlaylistSheet(context, t)),
-        ]),
+        ),
+        Divider(height: 1, thickness: 1, color: cs.outlineVariant.withOpacity(0.5)),
+        // Art with the overlay controls
+        SizedBox(
+          width: c.maxWidth,
+          height: art,
+          child: GestureDetector(
+            onDoubleTap: () {
+              HapticFeedback.mediumImpact();
+              appState.toggleLike(t.id);
+            },
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v < -300) audioHandler.skipToNext();
+              if (v > 300) audioHandler.skipToPrevious();
+            },
+            child: Stack(fit: StackFit.expand, children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 350),
+                child: KeyedSubtree(
+                  key: ValueKey(t.id),
+                  child: SizedBox.expand(child: FittedBox(fit: BoxFit.cover, clipBehavior: Clip.hardEdge,
+                      child: SizedBox(width: 600, height: 600, child: xpTrackArt(t, hiRes: true)))),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  height: 58,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.black.withOpacity(0.0), Colors.black.withOpacity(0.45)],
+                    ),
+                  ),
+                  child: StreamBuilder<PlaybackState>(
+                    stream: audioHandler.playbackState,
+                    builder: (context, snap) {
+                      final shuffle = snap.data?.shuffleMode == AudioServiceShuffleMode.all;
+                      final repeat = snap.data?.repeatMode ?? AudioServiceRepeatMode.none;
+                      Widget b(IconData i, bool on, VoidCallback f, String tip) => IconButton(
+                            tooltip: tip,
+                            iconSize: 28,
+                            icon: Icon(i, color: on ? cs.primary : Colors.white,
+                                shadows: const [Shadow(color: Colors.black54, blurRadius: 6)]),
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              f();
+                            },
+                          );
+                      return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const SizedBox(width: 8),
+                        b(repeat == AudioServiceRepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                            repeat != AudioServiceRepeatMode.none, () {
+                          audioHandler.setRepeatMode(switch (repeat) {
+                            AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
+                            AudioServiceRepeatMode.all => AudioServiceRepeatMode.one,
+                            _ => AudioServiceRepeatMode.none,
+                          });
+                        }, 'Repeat'),
+                        b(Icons.subtitles_rounded, false, () => Navigator.of(context).push(xpRoute(XpLyricsPage(track: t))), 'Lyrics'),
+                        b(Icons.shuffle_rounded, shuffle, () => audioHandler.setShuffleMode(
+                            shuffle ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all), 'Shuffle'),
+                        const SizedBox(width: 8),
+                      ]);
+                    },
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+        // Seek bar
+        StreamBuilder<Duration>(
+          stream: audioHandler.player.positionStream,
+          builder: (context, snap) {
+            final pos = snap.data ?? audioHandler.player.position;
+            final dur = audioHandler.player.duration ?? Duration(seconds: max(1, t.durationSeconds));
+            final total = max(1, dur.inMilliseconds);
+            final v = (pos.inMilliseconds / total).clamp(0.0, 1.0);
+            return Column(children: [
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  activeTrackColor: cs.primary,
+                  inactiveTrackColor: cs.outlineVariant.withOpacity(0.6),
+                  thumbColor: cs.primary,
+                  overlayColor: cs.primary.withOpacity(0.15),
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  trackShape: const RoundedRectSliderTrackShape(),
+                ),
+                child: SizedBox(
+                  height: 34,
+                  child: Slider(
+                    value: v,
+                    onChanged: (x) => audioHandler.seek(Duration(milliseconds: (x * total).round())),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(children: [
+                  Text(_fmt(pos), style: xpT(13.5, c: cs.primary, w: FontWeight.w600)),
+                  const Spacer(),
+                  Text(_fmt(dur), style: xpT(13.5, c: cs.onSurfaceVariant, w: FontWeight.w500)),
+                ]),
+              ),
+            ]);
+          },
+        ),
         const Spacer(),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 18), child: _xpActions(context, t)),
-        const SizedBox(height: 12),
+        // Controls
+        ListenableBuilder(
+          listenable: appState,
+          builder: (context, _) {
+            final liked = appState.isLiked(t.id);
+            return Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              XpIconBtn(liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
+                  size: 54, bg: Colors.transparent, fg: liked ? cs.primary : cs.onSurface, tip: 'Thumbs up',
+                  onTap: () => appState.toggleLike(t.id)),
+              XpIconBtn(Icons.skip_previous_rounded, size: 58, bg: Colors.transparent, fg: cs.onSurface,
+                  onTap: audioHandler.skipToPrevious),
+              XpPlayButton(size: 78, bg: cs.primary, fg: cs.onPrimary, pausedShape: XpShape.circle, playingShape: XpShape.circle),
+              XpIconBtn(Icons.skip_next_rounded, size: 58, bg: Colors.transparent, fg: cs.onSurface,
+                  onTap: audioHandler.skipToNext),
+              XpIconBtn(Icons.thumb_down_outlined, size: 54, bg: Colors.transparent, fg: cs.onSurface, tip: 'Thumbs down',
+                  onTap: () {
+                if (appState.isLiked(t.id)) appState.toggleLike(t.id);
+                xpSnack(context, "Got it, skipping");
+                audioHandler.skipToNext();
+              }),
+            ]);
+          },
+        ),
+        const Spacer(),
       ]);
     });
   }
