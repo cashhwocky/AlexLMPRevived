@@ -48,7 +48,7 @@ String _formatTotalDuration(List<TrackItem> tracks) {
   return '$mins min';
 }
 
-Future> _fetchAlbumMeta(String artist, String title) async {
+Future<Map<String, String>> _fetchAlbumMeta(String artist, String title) async {
   final key = '${artist.toLowerCase()}|${title.toLowerCase()}';
   if (_albumMetaCache.containsKey(key)) return _albumMetaCache[key]!;
   try {
@@ -2148,7 +2148,7 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
             slivers: [
               // True AlexLMP Centered Cover Header with Ambient Glow (Zero Seam)
               SliverToBoxAdapter(
-                child: FutureBuilder>(
+                child: FutureBuilder<Map<String, String>>(
                   future: _fetchAlbumMeta(page.artist, page.title),
                   initialData: _albumMetaCache['${page.artist.toLowerCase()}|${page.title.toLowerCase()}'],
                   builder: (_, metaSnap) {
@@ -2315,7 +2315,7 @@ class _RevivedAlbumPageState extends State<RevivedAlbumPage> {
               ),
               // Exact Album Release Date & Copyright Footer
               SliverToBoxAdapter(
-                child: FutureBuilder>(
+                child: FutureBuilder<Map<String, String>>(
                   future: _fetchAlbumMeta(page.artist, page.title),
                   initialData: _albumMetaCache['${page.artist.toLowerCase()}|${page.title.toLowerCase()}'],
                   builder: (_, metaSnap) {
