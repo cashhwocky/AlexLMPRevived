@@ -11,18 +11,18 @@ import 'package:path_provider/path_provider.dart';
 
 import 'main.dart';
 
-// ── True AlexLMP Obsidian Palette ────────────────────────────────────────────
-const Color _kBg = Color(0xFF09090B);
-const Color _kBgPure = Color(0xFF000000);
-const Color _kCard = Color(0xFF141418);
-const Color _kCardHigh = Color(0xFF1E1E24);
-const Color _kDock = Color(0xFF16161C);
-const Color _kBorder = Color(0x14FFFFFF);
-const Color _kText = Color(0xFFFFFFFF);
-const Color _kSub = Color(0xFF9496A1);
-const Color _kCrimson = Color(0xFFFF2A5F);
-const Color _kTealBg = Color(0xFF123B3A);
-const Color _kTealText = Color(0xFF4FD1C5);
+// ── Palette (matches the Material 3 Expressive look) ─────────────────────────
+const Color _kBg = Color(0xFF1A1210);
+const Color _kBgPure = Color(0xFF140D0B);
+const Color _kCard = Color(0xFF261D1A);
+const Color _kCardHigh = Color(0xFF322825);
+const Color _kDock = Color(0xFF231A17);
+const Color _kBorder = Color(0x00FFFFFF);
+const Color _kText = Color(0xFFF2DFD8);
+const Color _kSub = Color(0xFFD6C2BA);
+const Color _kCrimson = Color(0xFFFF8A50);
+const Color _kTealBg = Color(0xFF244E39);
+const Color _kTealText = Color(0xFFA6D9B9);
 
 Color get _bg => appState.b('pure_black_dark', false) ? _kBgPure : _kBg;
 
