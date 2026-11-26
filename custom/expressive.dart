@@ -18,9 +18,27 @@ import 'revived_shell.dart';
 
 // ═══════════════════════════════ Dynamic colour ═══════════════════════════════
 
-const Color kXpDefaultSeed = Color(0xFFFF8A50);
+const Color kXpDefaultSeed = Color(0xFFFF5722);
 
-ColorScheme _xpSchemeFor(Color seed) => AppPalette.scheme(seed);
+/// Light (Play Music style) unless the user picked dark.
+bool get xpLightMode => appState.str('xp_theme', 'light') == 'light';
+
+final Map<String, ColorScheme> _xpSchemes = {};
+ColorScheme _xpSchemeFor(Color seed) {
+  final light = xpLightMode;
+  final dyn = appState.b('xp_dynamic', false);
+  return _xpSchemes.putIfAbsent('${seed.value}_${light}_$dyn', () {
+    var cs = ColorScheme.fromSeed(seedColor: seed, brightness: light ? Brightness.light : Brightness.dark);
+    if (!dyn && seed.value == kXpDefaultSeed.value) {
+      // The classic Play Music orange.
+      cs = light
+          ? cs.copyWith(primary: const Color(0xFFF4511E), onPrimary: Colors.white,
+              primaryContainer: const Color(0xFFFFDBCF), onPrimaryContainer: const Color(0xFF3A0B00))
+          : cs.copyWith(primary: const Color(0xFFFF8A65), onPrimary: const Color(0xFF3E1000));
+    }
+    return cs;
+  });
+}
 
 final ValueNotifier<ColorScheme> xpScheme =
     ValueNotifier<ColorScheme>(_xpSchemeFor(kXpDefaultSeed));
@@ -40,7 +58,7 @@ void xpInit() {
 
 String _xpLastColorKey = '';
 void _xpSettingsChanged() {
-  final k = '${appState.b('xp_dynamic', true)}_${appState.str('xp_seed', '')}';
+  final k = '${appState.b('xp_dynamic', false)}_${appState.str('xp_seed', '')}_${appState.str('xp_theme', 'light')}';
   if (k != _xpLastColorKey) {
     _xpLastColorKey = k;
     xpRefreshColors();
@@ -55,7 +73,7 @@ Color xpFixedSeed() {
 
 Future<void> xpRefreshColors() async {
   final my = ++_xpSeq;
-  if (!appState.b('xp_dynamic', true)) {
+  if (!appState.b('xp_dynamic', false)) {
     xpScheme.value = _xpSchemeFor(xpFixedSeed());
     return;
   }
@@ -77,11 +95,11 @@ Future<void> xpRefreshColors() async {
 
 ThemeData xpThemeData(ColorScheme cs) => ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: cs.brightness,
       colorScheme: cs,
       scaffoldBackgroundColor: cs.surface,
       splashFactory: InkSparkle.splashFactory,
-      textTheme: ThemeData.dark().textTheme.apply(
+      textTheme: (cs.brightness == Brightness.light ? ThemeData.light() : ThemeData.dark()).textTheme.apply(
             bodyColor: cs.onSurface,
             displayColor: cs.onSurface,
           ),
@@ -1032,9 +1050,9 @@ class _XpShellState extends State<XpShell> {
           final navStyle = appState.str('xp_nav_style', 'docked');
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness: Brightness.light,
+            statusBarIconBrightness: cs.brightness == Brightness.light ? Brightness.dark : Brightness.light,
             systemNavigationBarColor: navStyle == 'floating' ? cs.surface : cs.surfaceContainer,
-            systemNavigationBarIconBrightness: Brightness.light,
+            systemNavigationBarIconBrightness: cs.brightness == Brightness.light ? Brightness.dark : Brightness.light,
           ));
           return PopScope(
             canPop: _tab == 'home',
@@ -2430,7 +2448,10 @@ List<(String, int)> xpTopTracks(Set<String> days, int n) {
 // ═══════════════════════════════ Search ═══════════════════════════════
 
 class XpSearchPage extends StatefulWidget {
-  const XpSearchPage({super.key});
+  final bool back;
+  final String? initialQuery;
+  final int initialFilter;
+  const XpSearchPage({super.key, this.back = false, this.initialQuery, this.initialFilter = 0});
   @override
   State<XpSearchPage> createState() => _XpSearchPageState();
 }
@@ -2459,6 +2480,19 @@ class _XpSearchPageState extends State<XpSearchPage> {
     ('Party', Icons.celebration_rounded, XpShape.cookie12),
     ('R&B', Icons.favorite_rounded, XpShape.cookie6),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _filter = widget.initialFilter;
+    final q = widget.initialQuery;
+    if (q != null && q.isNotEmpty) {
+      _q.text = q;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _run(q));
+    } else if (widget.back) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    }
+  }
 
   @override
   void dispose() {
@@ -2579,8 +2613,12 @@ class _XpSearchPageState extends State<XpSearchPage> {
               borderRadius: BorderRadius.circular(29),
             ),
             child: Row(children: [
-              const SizedBox(width: 18),
-              Icon(Icons.search_rounded, color: cs.onSurface),
+              if (widget.back)
+                IconButton(icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface), onPressed: () => Navigator.maybePop(context))
+              else ...[
+                const SizedBox(width: 18),
+                Icon(Icons.search_rounded, color: cs.onSurface),
+              ],
               const SizedBox(width: 12),
               Expanded(
                 child: Focus(
@@ -2592,7 +2630,7 @@ class _XpSearchPageState extends State<XpSearchPage> {
                     style: xpT(16.5, w: FontWeight.w500),
                     cursorColor: cs.primary,
                     decoration: InputDecoration(
-                      hintText: 'Songs, artists, albums',
+                      hintText: 'Search music',
                       hintStyle: xpT(16.5, w: FontWeight.w500, c: cs.onSurfaceVariant),
                       border: InputBorder.none,
                       isCollapsed: true,
@@ -3281,7 +3319,7 @@ class XpYouPage extends StatelessWidget {
               ),
             ),
             _group(context, 'Player', [
-              _row(context, Icons.style_rounded, 'Player style', xpPlayerStyleName(appState.str('xp_player', 'expressive')),
+              _row(context, Icons.style_rounded, 'Player style', xpPlayerStyleName(appState.str('xp_player', 'playmusic')),
                   () => showXpPlayerStylePicker(context)),
               _toggle(context, Icons.crop_square_rounded, 'Rounded square album art',
                   'Tap the art in the player to switch', appState.str('xp_art_shape', 'cookie') == 'square',
@@ -3298,8 +3336,8 @@ class XpYouPage extends StatelessWidget {
               _row(context, Icons.space_dashboard_rounded, 'Tab bar', 'Style and which tabs show',
                   () => Navigator.of(context).push(xpRoute(const XpSettingsPage()))),
               _toggle(context, Icons.palette_rounded, 'Colors from album art', 'The whole app follows the song',
-                  appState.b('xp_dynamic', true), (v) => appState.setB('xp_dynamic', v)),
-              if (!appState.b('xp_dynamic', true)) _seedPicker(context),
+                  appState.b('xp_dynamic', false), (v) => appState.setB('xp_dynamic', v)),
+              if (!appState.b('xp_dynamic', false)) _seedPicker(context),
             ]),
             _group(context, 'AI', [
               _row(context, Icons.graphic_eq_rounded, 'Start AI DJ', 'Talks between songs and picks what plays next',
@@ -3682,7 +3720,13 @@ class _XpStatsPageState extends State<XpStatsPage> {
 
 // ═══════════════════════════════ Player ═══════════════════════════════
 
+const List<(String, String, String, IconData)> kPmLayouts = [
+  ('playmusic', 'Play Music', 'Home, Recents, Library and Browse with a side menu', Icons.headphones_rounded),
+  ('expressive', 'Expressive', 'The shape-heavy layout with Search and You tabs', Icons.auto_awesome_rounded),
+];
+
 const List<(String, String, String, IconData)> kXpPlayerStyles = [
+  ('playmusic', 'Play Music', 'Big rounded art, thumbs up and the classic control row', Icons.headphones_rounded),
   ('expressive', 'Expressive', 'Shaped art with a spinning shape behind it, big connected buttons, wavy seek bar', Icons.auto_awesome_rounded),
   ('canvas', 'Canvas', 'Art fills the top of the screen and fades into the controls', Icons.wallpaper_rounded),
   ('vinyl', 'Vinyl', 'A record that spins while it plays', Icons.album_rounded),
@@ -3705,7 +3749,7 @@ void showXpPlayerStylePicker(BuildContext context) {
         return ListenableBuilder(
           listenable: appState,
           builder: (ctx, _) {
-            final cur = appState.str('xp_player', 'expressive');
+            final cur = appState.str('xp_player', 'playmusic');
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -3791,7 +3835,7 @@ class XpPlayerScreen extends StatelessWidget {
               body: Center(child: Text('Nothing playing', style: xpT(18, c: cs.onSurfaceVariant))),
             );
           }
-          final style = appState.str('xp_player', 'expressive');
+          final style = appState.str('xp_player', 'playmusic');
           Widget body;
           switch (style) {
             case 'canvas':
@@ -3811,6 +3855,9 @@ class XpPlayerScreen extends StatelessWidget {
               break;
             case 'minimal':
               body = _XpMinimalPlayer(track: t);
+              break;
+            case 'playmusic':
+              body = _PmPlayer(track: t);
               break;
             default:
               body = _XpExpressivePlayer(track: t);
@@ -6452,6 +6499,15 @@ class XpSettingsPage extends StatelessWidget {
             ),
             SliverToBoxAdapter(
               child: Column(children: [
+                xpSettingsGroup(context, 'Look', [
+                  xpSettingsRow(context, Icons.dashboard_customize_rounded, 'Layout',
+                      _xpStyleName(kPmLayouts, appState.str('xp_layout', 'playmusic')),
+                      () => showXpChoiceSheet(context, 'Layout', 'xp_layout', 'playmusic', kPmLayouts)),
+                  xpSettingsToggle(context, Icons.dark_mode_rounded, 'Dark theme', 'Light is the classic Play Music look',
+                      !xpLightMode, (v) => appState.setStr('xp_theme', v ? 'dark' : 'light')),
+                  xpSettingsToggle(context, Icons.palette_rounded, 'Colors from album art', 'Off keeps the Play Music orange',
+                      appState.b('xp_dynamic', false), (v) => appState.setB('xp_dynamic', v)),
+                ]),
                 xpSettingsGroup(context, 'Home & tabs', [
                   xpSettingsRow(context, Icons.home_rounded, 'Home style',
                       _xpStyleName(kXpHomeStyles, appState.str('xp_home_style', 'expressive')),
@@ -6475,7 +6531,7 @@ class XpSettingsPage extends StatelessWidget {
                 ]),
                 xpSettingsGroup(context, 'Player', [
                   xpSettingsRow(context, Icons.style_rounded, 'Player style',
-                      xpPlayerStyleName(appState.str('xp_player', 'expressive')), () => showXpPlayerStylePicker(context)),
+                      xpPlayerStyleName(appState.str('xp_player', 'playmusic')), () => showXpPlayerStylePicker(context)),
                   xpSettingsToggle(context, Icons.crop_square_rounded, 'Rounded square album art', 'Or tap the art in the player',
                       appState.str('xp_art_shape', 'cookie') == 'square',
                       (v) => appState.setStr('xp_art_shape', v ? 'square' : 'cookie')),
@@ -6498,7 +6554,7 @@ class XpSettingsPage extends StatelessWidget {
                 ]),
                 xpSettingsGroup(context, 'Look', [
                   xpSettingsToggle(context, Icons.palette_rounded, 'Colors from album art', 'The whole app follows the song',
-                      appState.b('xp_dynamic', true), (v) => appState.setB('xp_dynamic', v)),
+                      appState.b('xp_dynamic', false), (v) => appState.setB('xp_dynamic', v)),
                   xpSettingsToggle(context, Icons.speed_rounded, 'High refresh rate', 'Smoother animations',
                       appState.b('high_refresh', true), (v) {
                     appState.setB('high_refresh', v);
@@ -6722,4 +6778,1125 @@ Widget xpFeatureCard(BuildContext context, {required Widget art, required String
       ),
     ),
   );
+}
+
+// ═══════════════════════════════ Play Music layout ═══════════════════════════════
+// Google Play Music, modernised: Home / Recents / Library / Browse, a side
+// drawer, I'm Feeling Lucky, collage cards with play buttons, orange accents.
+
+class PmShell extends StatefulWidget {
+  final Widget Function(AppPalette pal)? aiChatBuilder;
+  const PmShell({super.key, this.aiChatBuilder});
+  @override
+  State<PmShell> createState() => _PmShellState();
+}
+
+class _PmShellState extends State<PmShell> {
+  final GlobalKey<ScaffoldState> _key = GlobalKey<ScaffoldState>();
+  late int _tab = const {'recents': 1, 'library': 2, 'browse': 3}[appState.str('pm_start_tab', 'home')] ?? 0;
+  int _dir = 1;
+  late final Set<int> _visited = {_tab};
+
+  void _go(int i) {
+    if (i == _tab) return;
+    setState(() {
+      _dir = i > _tab ? 1 : -1;
+      _tab = i;
+      _visited.add(i);
+    });
+  }
+
+  void _openDrawer() => _key.currentState?.openDrawer();
+
+  Widget _page(int i) {
+    switch (i) {
+      case 1:
+        return PmRecentsPage(onMenu: _openDrawer);
+      case 2:
+        return PmLibraryPage(onMenu: _openDrawer);
+      case 3:
+        return PmBrowsePage(onMenu: _openDrawer);
+      default:
+        return PmHomePage(onMenu: _openDrawer);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final light = cs.brightness == Brightness.light;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: light ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: cs.surfaceContainerLowest,
+      systemNavigationBarIconBrightness: light ? Brightness.dark : Brightness.light,
+    ));
+    const items = [
+      (Icons.home_outlined, Icons.home_rounded, 'Home'),
+      (Icons.history_rounded, Icons.restore_rounded, 'Recents'),
+      (Icons.library_music_outlined, Icons.library_music_rounded, 'Library'),
+      (Icons.explore_outlined, Icons.explore_rounded, 'Browse'),
+    ];
+    return PopScope(
+      canPop: _tab == 0,
+      onPopInvoked: (did) {
+        if (!did) _go(0);
+      },
+      child: Scaffold(
+        key: _key,
+        backgroundColor: cs.surface,
+        resizeToAvoidBottomInset: false,
+        drawer: PmDrawer(aiChatBuilder: widget.aiChatBuilder, onGo: (i) {
+          Navigator.pop(context);
+          _go(i);
+        }),
+        body: Stack(children: [
+          for (final i in (_visited.toList()..sort()))
+            Positioned.fill(
+              key: ValueKey('pm$i'),
+              child: Offstage(
+                offstage: i != _tab,
+                child: TickerMode(
+                  enabled: i == _tab,
+                  child: _XpTabIn(active: i == _tab, dir: _dir.toDouble(), child: _page(i)),
+                ),
+              ),
+            ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const XpMiniPlayer(),
+              XpNavBar(
+                items: [for (var i = 0; i < items.length; i++) ('$i', items[i].$1, items[i].$2, items[i].$3)],
+                current: '$_tab',
+                onSelect: (id) => _go(int.parse(id)),
+                style: appState.str('xp_nav_style', 'docked'),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Side drawer, like Play Music's.
+class PmDrawer extends StatelessWidget {
+  final Widget Function(AppPalette pal)? aiChatBuilder;
+  final ValueChanged<int> onGo;
+  const PmDrawer({super.key, this.aiChatBuilder, required this.onGo});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, ytAccount]),
+      builder: (context, _) {
+        final acc = ytAccount.value;
+        final yt = appState.homeMode == 'youtube';
+        Widget item(IconData i, String l, VoidCallback f, {bool on = false}) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+              child: XpPress(
+                amount: 0.4,
+                onTap: f,
+                child: Container(
+                  height: 54,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: on ? cs.primaryContainer : Colors.transparent,
+                    borderRadius: BorderRadius.circular(27),
+                  ),
+                  child: Row(children: [
+                    Icon(i, color: on ? cs.onPrimaryContainer : cs.onSurfaceVariant),
+                    const SizedBox(width: 16),
+                    Expanded(child: Text(l, style: xpT(15.5, c: on ? cs.onPrimaryContainer : cs.onSurface))),
+                  ]),
+                ),
+              ),
+            );
+        void push(Widget w) {
+          Navigator.pop(context);
+          Navigator.of(context).push(xpRoute(w));
+        }
+
+        return Drawer(
+          backgroundColor: cs.surfaceContainerLow,
+          child: ListView(padding: EdgeInsets.zero, children: [
+            Container(
+              padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 20, 20, 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, cs.tertiary, 0.6)!]),
+              ),
+              child: XpPress(
+                onTap: () {
+                  Navigator.pop(context);
+                  showYtAccountSheet(context);
+                },
+                child: Row(children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: cs.onPrimary,
+                    backgroundImage: acc.signedIn && acc.photo != null ? NetworkImage(acc.photo!) : null,
+                    child: acc.signedIn && acc.photo != null ? null : Icon(Icons.person_rounded, color: cs.primary),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(acc.signedIn ? (acc.name ?? 'You') : 'Sign in', style: xpT(18, c: cs.onPrimary, w: FontWeight.w800)),
+                      Text(acc.signedIn ? 'YouTube Music' : 'Sync your music',
+                          style: xpT(13, c: cs.onPrimary.withOpacity(0.85), w: FontWeight.w500)),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _XpSegmented(
+                options: const ['YouTube Music', 'On device'],
+                index: yt ? 0 : 1,
+                onChanged: (i) => appState.setStr('home_mode', i == 0 ? 'youtube' : 'local'),
+              ),
+            ),
+            item(Icons.home_rounded, 'Home', () => onGo(0)),
+            item(Icons.restore_rounded, 'Recents', () => onGo(1)),
+            item(Icons.library_music_rounded, 'Music library', () => onGo(2)),
+            item(Icons.explore_rounded, 'Browse', () => onGo(3)),
+            const Divider(indent: 24, endIndent: 24),
+            item(Icons.insights_rounded, 'Your stats', () => push(const XpStatsPage())),
+            item(Icons.download_done_rounded, 'Downloads', () => push(const XpCollectionPage.downloads())),
+            item(Icons.equalizer_rounded, 'Sound & tools', () {
+              Navigator.pop(context);
+              showXpToolsSheet(context);
+            }),
+            item(Icons.graphic_eq_rounded, 'AI DJ', () {
+              Navigator.pop(context);
+              startOrStepAiDj(openInPlayer: context);
+            }),
+            if (aiChatBuilder != null)
+              item(Icons.auto_awesome_rounded, 'Ask AI', () => push(Scaffold(body: aiChatBuilder!(appState.palette)))),
+            const Divider(indent: 24, endIndent: 24),
+            item(xpLightMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded, xpLightMode ? 'Dark theme' : 'Light theme',
+                () => appState.setStr('xp_theme', xpLightMode ? 'dark' : 'light')),
+            item(Icons.settings_rounded, 'Settings', () => push(const XpSettingsPage())),
+            const SizedBox(height: 20),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+/// Top bar: menu, title, search, account.
+Widget pmTopBar(BuildContext context, String title, VoidCallback onMenu, {Widget? bottom}) {
+  final cs = context.cs;
+  final top = MediaQuery.of(context).padding.top;
+  return Container(
+    color: cs.surface,
+    padding: EdgeInsets.only(top: top),
+    child: Column(children: [
+      SizedBox(
+        height: 64,
+        child: Row(children: [
+          const SizedBox(width: 4),
+          IconButton(icon: Icon(Icons.menu_rounded, color: cs.onSurface), onPressed: onMenu),
+          const SizedBox(width: 8),
+          Expanded(child: Text(title, style: xpT(23, w: FontWeight.w700))),
+          IconButton(
+            icon: Icon(Icons.search_rounded, color: cs.onSurface),
+            onPressed: () => Navigator.of(context).push(xpRoute(const Scaffold(body: XpSearchPage(back: true)))),
+          ),
+          const SizedBox(width: 4),
+        ]),
+      ),
+      if (bottom != null) bottom,
+    ]),
+  );
+}
+
+/// A Play Music card: art with a round play button, title, subtitle, menu.
+class PmCard extends StatelessWidget {
+  final Widget art;
+  final String title;
+  final String sub;
+  final VoidCallback onTap;
+  final VoidCallback? onPlay;
+  final VoidCallback? onMore;
+  final double? width;
+  final bool round;
+  const PmCard({
+    super.key,
+    required this.art,
+    required this.title,
+    required this.sub,
+    required this.onTap,
+    this.onPlay,
+    this.onMore,
+    this.width,
+    this.round = false,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final body = XpPress(
+      amount: 0.6,
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(cs.brightness == Brightness.light ? 0.06 : 0.25), blurRadius: 10, offset: const Offset(0, 3))],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: Stack(fit: StackFit.expand, children: [
+              round
+                  ? Padding(padding: const EdgeInsets.all(14), child: ClipOval(child: art))
+                  : art,
+              if (onPlay != null)
+                Positioned(
+                  right: 10,
+                  bottom: 10,
+                  child: XpPress(
+                    onTap: onPlay,
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.94),
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)],
+                      ),
+                      child: Icon(Icons.play_arrow_rounded, color: cs.primary, size: 26),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 9, 2, 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(14.5, w: FontWeight.w600)),
+                  if (sub.isNotEmpty)
+                    Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: xpT(12.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                ]),
+              ),
+              if (onMore != null)
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 20,
+                    icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
+                    onPressed: onMore,
+                  ),
+                ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+    return width == null ? body : SizedBox(width: width, child: body);
+  }
+}
+
+/// 2×2 artwork collage.
+Widget pmCollage(List<Widget> arts) {
+  if (arts.isEmpty) return Builder(builder: (c) => Container(color: c.cs.surfaceContainerHighest, child: Icon(Icons.queue_music_rounded, color: c.cs.onSurfaceVariant, size: 40)));
+  if (arts.length < 4) return arts.first;
+  return Column(children: [
+    Expanded(child: Row(children: [Expanded(child: arts[0]), Expanded(child: arts[1])])),
+    Expanded(child: Row(children: [Expanded(child: arts[2]), Expanded(child: arts[3])])),
+  ]);
+}
+
+Widget pmLocalPlaylistArt(Playlist pl) {
+  final arts = <Widget>[];
+  for (final id in pl.trackIds) {
+    final t = audioHandler.trackById(id);
+    if (t != null) arts.add(SizedBox.expand(child: xpTrackArt(t)));
+    if (arts.length == 4) break;
+  }
+  return pmCollage(arts);
+}
+
+Widget pmRow(List<Widget> cards, {double width = 158, double height = 232}) => SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+        itemCount: cards.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, i) => SizedBox(width: width, child: XpPopIn(index: i, child: cards[i])),
+      ),
+    );
+
+Future<void> pmPlayShelf(BuildContext context, YtShelfItem it) async {
+  try {
+    if (it.kind == 'album') {
+      final p = await YouTubeMusic.album(it.id);
+      xpPlay(p.tracks, 0);
+    } else if (it.kind == 'playlist') {
+      final p = await YouTubeMusic.playlistPage(it.id, title: it.title, thumbnail: it.thumbnail);
+      xpPlay(p.tracks, 0);
+    } else if (it.kind == 'artist') {
+      final p = await YouTubeMusic.artist(it.id, it.title);
+      xpPlay(p.songs, 0);
+    } else {
+      audioHandler.playYouTubeTrack(YouTubeMusic.trackFromShelf(it, it.subtitle));
+    }
+  } catch (_) {
+    appNotice.value = "Couldn't play that";
+  }
+}
+
+/// Instant mix from your likes plus recommendations.
+Future<void> pmFeelingLucky(BuildContext context) async {
+  HapticFeedback.mediumImpact();
+  final pool = <TrackItem>[...xpLikedTracks()];
+  for (final sh in YouTubeMusic.cachedHomeFeed() ?? const <YtShelf>[]) {
+    for (final it in sh.items) {
+      if (it.kind == 'video' || it.kind == 'song') pool.add(YouTubeMusic.trackFromShelf(it, it.subtitle));
+    }
+  }
+  if (pool.isEmpty) pool.addAll(audioHandler.tracks);
+  if (pool.isEmpty) {
+    xpSnack(context, 'Like some songs first');
+    return;
+  }
+  final seen = <String>{};
+  final list = [for (final t in pool..shuffle()) if (seen.add(t.id)) t].take(100).toList();
+  xpPlay(list, 0);
+  openPlayer(context);
+}
+
+// ── Home ──
+class PmHomePage extends StatefulWidget {
+  final VoidCallback onMenu;
+  const PmHomePage({super.key, required this.onMenu});
+  @override
+  State<PmHomePage> createState() => _PmHomePageState();
+}
+
+class _PmHomePageState extends State<PmHomePage> {
+  late Future<List<YtShelf>> _feed = YouTubeMusic.homeFeed();
+
+  @override
+  void initState() {
+    super.initState();
+    YouTubeMusic.playlistPage('LM', title: 'Liked Music').then((_) {
+      if (mounted) setState(() {});
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, ytAccount, LibraryStore.revision]),
+      builder: (context, _) {
+        final yt = appState.homeMode == 'youtube';
+        return Column(children: [
+          pmTopBar(context, 'Play Music', widget.onMenu),
+          Expanded(
+            child: RefreshIndicator(
+              color: cs.primary,
+              onRefresh: () async {
+                setState(() => _feed = YouTubeMusic.homeFeed(refresh: true));
+                try {
+                  await _feed;
+                } catch (_) {}
+              },
+              child: FutureBuilder<List<YtShelf>>(
+                future: yt ? _feed : null,
+                initialData: yt ? YouTubeMusic.cachedHomeFeed() : null,
+                builder: (context, snap) {
+                  final shelves = snap.data ?? const <YtShelf>[];
+                  return ListView(
+                    padding: EdgeInsets.only(top: 4, bottom: xpBottomPad(context)),
+                    children: [
+                      _lucky(context),
+                      ..._listenAgain(context, yt, shelves),
+                      if (yt) ..._ytShelves(context, shelves, snap.connectionState == ConnectionState.waiting) else ..._local(context),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ]);
+      },
+    );
+  }
+
+  Widget _lucky(BuildContext context) {
+    final cs = context.cs;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+      child: XpPress(
+        amount: 0.4,
+        onTap: () => pmFeelingLucky(context),
+        child: Container(
+          height: 196,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color.lerp(cs.primary, Colors.white, 0.15)!, cs.primary],
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(children: [
+            Positioned(
+              right: -26,
+              top: -18,
+              child: Transform.rotate(
+                angle: -0.25,
+                child: Icon(Icons.card_giftcard_rounded, size: 190, color: Colors.white.withOpacity(0.18)),
+              ),
+            ),
+            Positioned(
+              left: 22,
+              right: 90,
+              bottom: 20,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text("I'm Feeling Lucky", style: xpT(27, c: cs.onPrimary, w: FontWeight.w800)),
+                Container(
+                  width: 36,
+                  height: 3,
+                  margin: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(color: cs.onPrimary, borderRadius: BorderRadius.circular(2)),
+                ),
+                Text('An instant mix from your thumbs up and recommendations',
+                    style: xpT(13.5, c: cs.onPrimary.withOpacity(0.92), w: FontWeight.w500)),
+              ]),
+            ),
+            Positioned(
+              right: 18,
+              bottom: 18,
+              child: XpShaped(
+                shape: XpShape.cookie9,
+                size: 58,
+                child: Container(color: Colors.white, child: Icon(Icons.play_arrow_rounded, color: cs.primary, size: 32)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Big collage cards: your playlists and mixes.
+  List<Widget> _listenAgain(BuildContext context, bool yt, List<YtShelf> shelves) {
+    final out = <Widget>[];
+    Widget big(Widget art, String kicker, String title, String sub, VoidCallback open, VoidCallback play) => Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+          child: XpPress(
+            amount: 0.4,
+            onTap: open,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: SizedBox(
+                height: 230,
+                child: Stack(fit: StackFit.expand, children: [
+                  art,
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black.withOpacity(0.78)],
+                        stops: const [0.35, 1],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 20,
+                    right: 90,
+                    bottom: 18,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(kicker, style: xpT(13, c: Colors.white70, w: FontWeight.w600)),
+                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: xpT(26, c: Colors.white, w: FontWeight.w800, h: 1.1)),
+                      Container(
+                        width: 36,
+                        height: 3,
+                        margin: const EdgeInsets.symmetric(vertical: 7),
+                        decoration: BoxDecoration(color: context.cs.primary, borderRadius: BorderRadius.circular(2)),
+                      ),
+                      Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(13, c: Colors.white70)),
+                    ]),
+                  ),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: XpPress(
+                      onTap: play,
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                        child: Icon(Icons.play_arrow_rounded, color: context.cs.primary, size: 32),
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+    final pls = appState.playlists.where((p) => p.trackIds.isNotEmpty).toList();
+    if (pls.isNotEmpty) {
+      final pl = pls.first;
+      out.add(big(pmLocalPlaylistArt(pl), 'Listen again', pl.name, '${pl.trackIds.length} songs',
+          () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: pl))), () {
+        final list = [for (final id in pl.trackIds) if (audioHandler.trackById(id) case final t?) t];
+        xpPlay(list, 0);
+      }));
+    }
+    if (yt) {
+      for (final sh in shelves) {
+        final it = sh.items.where((i) => i.kind == 'playlist' || i.kind == 'album').firstOrNull;
+        if (it == null) continue;
+        out.add(big(xpUrlArt(xpHiRes(it.thumbnail)), sh.title.isEmpty ? 'For you' : sh.title, it.title, it.subtitle,
+            () => xpOpenShelf(context, it), () => pmPlayShelf(context, it)));
+        break;
+      }
+    }
+    return out;
+  }
+
+  List<Widget> _ytShelves(BuildContext context, List<YtShelf> shelves, bool waiting) {
+    if (shelves.isEmpty) {
+      return [
+        if (waiting)
+          const Padding(padding: EdgeInsets.all(40), child: Center(child: XpLoading()))
+        else
+          _XpEmpty(
+            icon: Icons.cloud_off_rounded,
+            title: ytAccount.value.signedIn ? "Couldn't load your feed" : 'Sign in to YouTube Music',
+            sub: ytAccount.value.signedIn ? 'Pull down to try again.' : 'Get your mixes, likes and playlists here.',
+            action: ytAccount.value.signedIn ? null : ('Sign in', () => showYtAccountSheet(context)),
+          ),
+      ];
+    }
+    final out = <Widget>[];
+    for (final sh in shelves) {
+      if (sh.items.isEmpty) continue;
+      final songs = sh.kind == 'song' || sh.items.every((i) => i.kind == 'video');
+      out.add(xpSection(context, sh.title.isEmpty ? 'For you' : sh.title));
+      if (songs) {
+        final list = [for (final it in sh.items) YouTubeMusic.trackFromShelf(it, it.subtitle)];
+        out.add(pmListCard(context, [
+          for (var i = 0; i < min(4, list.length); i++) XpSongRow(track: list[i], onTap: () => xpPlay(list, i)),
+        ]));
+      } else {
+        out.add(pmRow([
+          for (final it in sh.items)
+            PmCard(
+              art: xpUrlArt(it.thumbnail),
+              title: it.title,
+              sub: it.subtitle,
+              round: it.kind == 'artist',
+              onTap: () => xpOpenShelf(context, it),
+              onPlay: () => pmPlayShelf(context, it),
+            ),
+        ]));
+      }
+    }
+    return out;
+  }
+
+  List<Widget> _local(BuildContext context) {
+    final local = audioHandler.tracks.where((t) => !t.isYouTube).toList();
+    if (local.isEmpty) {
+      return [
+        _XpEmpty(icon: Icons.folder_open_rounded, title: 'No music on this phone yet', sub: 'Add a folder in Settings, or switch to YouTube Music in the menu.'),
+      ];
+    }
+    final recent = [for (final id in appState.recent) if (audioHandler.trackById(id) case final t?) if (!t.isYouTube) t];
+    final byAlbum = <String, List<TrackItem>>{};
+    for (final t in local) {
+      byAlbum.putIfAbsent(t.album, () => []).add(t);
+    }
+    return [
+      if (recent.isNotEmpty) ...[
+        xpSection(context, 'Recently played'),
+        pmRow([
+          for (var i = 0; i < min(12, recent.length); i++)
+            PmCard(art: xpTrackArt(recent[i]), title: recent[i].title, sub: recent[i].artist,
+                onTap: () => xpPlay(recent, i), onPlay: () => xpPlay(recent, i)),
+        ]),
+      ],
+      xpSection(context, 'Albums'),
+      pmRow([
+        for (final e in byAlbum.entries.take(24))
+          PmCard(
+            art: xpTrackArt(e.value.first),
+            title: e.key,
+            sub: e.value.first.artist,
+            onTap: () => openLocalAlbum(context, e.key, e.value),
+            onPlay: () => xpPlay(e.value, 0),
+          ),
+      ]),
+    ];
+  }
+}
+
+/// White rounded card that holds rows (Play Music lists).
+Widget pmListCard(BuildContext context, List<Widget> rows) {
+  final cs = context.cs;
+  return Container(
+    margin: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    decoration: BoxDecoration(
+      color: cs.surfaceContainerLowest,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(cs.brightness == Brightness.light ? 0.05 : 0.2), blurRadius: 10, offset: const Offset(0, 3))],
+    ),
+    child: Column(children: rows),
+  );
+}
+
+// ── Recents ──
+class PmRecentsPage extends StatelessWidget {
+  final VoidCallback onMenu;
+  const PmRecentsPage({super.key, required this.onMenu});
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, LibraryStore.revision, audioHandler.currentIndex]),
+      builder: (context, _) {
+        final items = <PmCard>[];
+        final seen = <String>{};
+        for (final id in appState.recent) {
+          final t = audioHandler.trackById(id);
+          if (t == null || !seen.add(t.id)) continue;
+          final list = [t];
+          items.add(PmCard(
+            art: xpTrackArt(t),
+            title: t.title,
+            sub: t.artist,
+            onTap: () => audioHandler.playYouTubeTrack(t),
+            onPlay: () => xpPlay(list, 0),
+            onMore: () => showXpTrackMenu(context, t),
+          ));
+          if (items.length >= 60) break;
+        }
+        for (final i in LibraryStore.saved.reversed.take(20)) {
+          items.add(PmCard(
+            art: xpUrlArt(i.thumbnail),
+            title: i.title,
+            sub: i.subtitle,
+            onTap: () => LibraryStore.open(context, i),
+          ));
+        }
+        return Column(children: [
+          pmTopBar(context, 'Recents', onMenu),
+          Expanded(
+            child: items.isEmpty
+                ? ListView(children: [
+                    _XpEmpty(icon: Icons.restore_rounded, title: 'Nothing played yet', sub: 'Things you play show up here.'),
+                  ])
+                : GridView.builder(
+                    padding: EdgeInsets.fromLTRB(14, 6, 14, xpBottomPad(context)),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.74),
+                    itemCount: items.length,
+                    itemBuilder: (_, i) => XpPopIn(index: i, child: items[i]),
+                  ),
+          ),
+        ]);
+      },
+    );
+  }
+}
+
+// ── Library ──
+class PmLibraryPage extends StatefulWidget {
+  final VoidCallback onMenu;
+  const PmLibraryPage({super.key, required this.onMenu});
+  @override
+  State<PmLibraryPage> createState() => _PmLibraryPageState();
+}
+
+class _PmLibraryPageState extends State<PmLibraryPage> {
+  int _tab = 0;
+  late final Future<List<YtPlaylistRef>> _pl = YouTubeMusic.libraryPlaylists().catchError((_) => <YtPlaylistRef>[]);
+  late final Future<List<YtArtist>> _ar = YouTubeMusic.libraryArtists().catchError((_) => <YtArtist>[]);
+  late final Future<List<YtAlbum>> _al = YouTubeMusic.libraryAlbums().catchError((_) => <YtAlbum>[]);
+  static const _tabs = ['Playlists', 'Artists', 'Albums', 'Songs', 'Genres'];
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, LibraryStore.revision, OfflineStore.revision, audioHandler.libraryRevision]),
+      builder: (context, _) => Stack(children: [
+        Column(children: [
+          pmTopBar(context, 'Music library', widget.onMenu,
+              bottom: SizedBox(
+                height: 48,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+                  itemCount: _tabs.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) => XpPress(
+                    onTap: () => setState(() => _tab = i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOutBack,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _tab == i ? cs.primary : cs.surfaceContainerHigh,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(_tabs[i].toUpperCase(),
+                          style: xpT(13, ls: 0.6, w: FontWeight.w800, c: _tab == i ? cs.onPrimary : cs.onSurfaceVariant)),
+                    ),
+                  ),
+                ),
+              )),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              child: KeyedSubtree(key: ValueKey('pmlib$_tab'), child: _body(context)),
+            ),
+          ),
+        ]),
+        if (_tab == 0)
+          Positioned(
+            right: 18,
+            bottom: xpBottomPad(context) - 6,
+            child: XpPress(
+              onTap: () => showCreateOrEditPlaylistDialog(context),
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: cs.primary.withOpacity(0.45), blurRadius: 16, offset: const Offset(0, 6))],
+                ),
+                child: Icon(Icons.add_rounded, color: cs.onPrimary, size: 30),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  Widget _grid(List<Widget> cards, {List<Widget> header = const []}) {
+    return CustomScrollView(slivers: [
+      for (final h in header) SliverToBoxAdapter(child: h),
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(14, 4, 14, xpBottomPad(context) + 40),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.74),
+          itemCount: cards.length,
+          itemBuilder: (_, i) => XpPopIn(index: i, child: cards[i]),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _body(BuildContext context) {
+    final cs = context.cs;
+    final local = audioHandler.tracks.where((t) => !t.isYouTube).toList();
+    switch (_tab) {
+      case 1:
+        return FutureBuilder<List<YtArtist>>(
+          future: _ar,
+          builder: (context, snap) {
+            final byArtist = <String, List<TrackItem>>{};
+            for (final t in local) {
+              byArtist.putIfAbsent(t.artist, () => []).add(t);
+            }
+            return _grid([
+              for (final a in snap.data ?? const <YtArtist>[])
+                PmCard(art: xpUrlArt(a.thumbnail, icon: Icons.person_rounded), title: a.name, sub: 'Artist', round: true,
+                    onTap: () => Navigator.of(context).push(xpRoute(XpArtistPage(url: a.url, name: a.name, thumbnail: a.thumbnail)))),
+              for (final e in byArtist.entries)
+                PmCard(art: xpTrackArt(e.value.first), title: e.key, sub: '${e.value.length} songs', round: true,
+                    onTap: () => openLocalArtist(context, e.key, e.value), onPlay: () => xpPlay(e.value, 0)),
+            ]);
+          },
+        );
+      case 2:
+        return FutureBuilder<List<YtAlbum>>(
+          future: _al,
+          builder: (context, snap) {
+            final byAlbum = <String, List<TrackItem>>{};
+            for (final t in local) {
+              byAlbum.putIfAbsent(t.album, () => []).add(t);
+            }
+            return _grid([
+              for (final i in LibraryStore.saved.where((i) => i.kind == 'album'))
+                PmCard(art: xpUrlArt(i.thumbnail), title: i.title, sub: i.subtitle, onTap: () => LibraryStore.open(context, i)),
+              for (final a in snap.data ?? const <YtAlbum>[])
+                PmCard(art: xpUrlArt(a.thumbnail), title: a.title, sub: a.artist,
+                    onTap: () => Navigator.of(context).push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail)))),
+              for (final e in byAlbum.entries)
+                PmCard(art: xpTrackArt(e.value.first), title: e.key, sub: e.value.first.artist,
+                    onTap: () => openLocalAlbum(context, e.key, e.value), onPlay: () => xpPlay(e.value, 0)),
+            ]);
+          },
+        );
+      case 3:
+        final songs = [...audioHandler.tracks]..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        if (songs.isEmpty) return ListView(children: [_XpEmpty(icon: Icons.music_note_rounded, title: 'No songs yet', sub: 'Songs you add show up here.')]);
+        return ListView.builder(
+          padding: EdgeInsets.only(top: 4, bottom: xpBottomPad(context)),
+          itemCount: songs.length + 1,
+          itemBuilder: (_, i) => i == 0
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+                  child: XpButtonGroup(height: 50, items: [
+                    XpGroupItem(Icons.shuffle_rounded, 'Shuffle all', cs.primary, cs.onPrimary, () => xpPlay(songs, 0, shuffle: true)),
+                  ]),
+                )
+              : XpSongRow(track: songs[i - 1], onTap: () => xpPlay(songs, i - 1)),
+        );
+      case 4:
+        return ListView(
+          padding: EdgeInsets.fromLTRB(14, 4, 14, xpBottomPad(context)),
+          children: [PmBrowsePage.genreGrid(context)],
+        );
+      default:
+        final liked = xpLikedTracks();
+        final lastAdded = [...local]..sort((a, b) => b.id.compareTo(a.id));
+        return FutureBuilder<List<YtPlaylistRef>>(
+          future: _pl,
+          initialData: YouTubeMusic.cachedLibrary(),
+          builder: (context, snap) => _grid(
+            [
+              for (final pl in appState.playlists)
+                PmCard(
+                  art: pmLocalPlaylistArt(pl),
+                  title: pl.name,
+                  sub: '${pl.trackIds.length} songs',
+                  onTap: () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: pl))),
+                  onPlay: () => xpPlay([for (final id in pl.trackIds) if (audioHandler.trackById(id) case final t?) t], 0),
+                ),
+              for (final i in LibraryStore.saved.where((i) => i.kind == 'playlist'))
+                PmCard(art: xpUrlArt(i.thumbnail), title: i.title, sub: i.subtitle, onTap: () => LibraryStore.open(context, i)),
+              for (final p in snap.data ?? const <YtPlaylistRef>[])
+                if (p.playlistId != 'LM')
+                  PmCard(
+                    art: xpUrlArt(p.thumbnail),
+                    title: p.title,
+                    sub: p.subtitle,
+                    onTap: () => Navigator.of(context)
+                        .push(xpRoute(XpCollectionPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail))),
+                  ),
+            ],
+            header: [
+              xpSection(context, 'Auto playlists'),
+              SizedBox(
+                height: 232,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  children: [
+                    SizedBox(
+                      width: 158,
+                      child: PmCard(
+                        art: Container(
+                          decoration: BoxDecoration(gradient: LinearGradient(colors: [cs.primary, cs.tertiary])),
+                          child: Icon(Icons.thumb_up_rounded, color: cs.onPrimary, size: 54),
+                        ),
+                        title: 'Thumbs up',
+                        sub: '${liked.length} songs',
+                        onTap: () => Navigator.of(context).push(xpRoute(const XpCollectionPage.liked())),
+                        onPlay: () => xpPlay(liked, 0),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    if (lastAdded.isNotEmpty) ...[
+                      SizedBox(
+                        width: 158,
+                        child: PmCard(
+                          art: pmCollage([for (final t in lastAdded.take(4)) SizedBox.expand(child: xpTrackArt(t))]),
+                          title: 'Last added',
+                          sub: '${min(100, lastAdded.length)} songs',
+                          onTap: () => Navigator.of(context).push(xpRoute(
+                              XpCollectionPage.custom(title: 'Last added', tracks: lastAdded.take(100).toList()))),
+                          onPlay: () => xpPlay(lastAdded.take(100).toList(), 0),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    SizedBox(
+                      width: 158,
+                      child: PmCard(
+                        art: Container(
+                          color: cs.tertiaryContainer,
+                          child: Icon(Icons.download_done_rounded, color: cs.onTertiaryContainer, size: 54),
+                        ),
+                        title: 'Downloaded',
+                        sub: '${OfflineStore.count} songs',
+                        onTap: () => Navigator.of(context).push(xpRoute(const XpCollectionPage.downloads())),
+                        onPlay: () => xpPlay(OfflineStore.tracks(), 0),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              xpSection(context, 'Playlists'),
+            ],
+          ),
+        );
+    }
+  }
+}
+
+// ── Browse ──
+class PmBrowsePage extends StatelessWidget {
+  final VoidCallback onMenu;
+  const PmBrowsePage({super.key, required this.onMenu});
+
+  static const _genres = [
+    ('Hip-Hop', Icons.mic_rounded, Color(0xFF6D4C41)),
+    ('Pop', Icons.star_rounded, Color(0xFFD81B60)),
+    ('Rock', Icons.bolt_rounded, Color(0xFF455A64)),
+    ('R&B / Soul', Icons.favorite_rounded, Color(0xFF8E24AA)),
+    ('Alternative', Icons.album_rounded, Color(0xFF00897B)),
+    ('Metal', Icons.local_fire_department_rounded, Color(0xFF263238)),
+    ('Electronic', Icons.graphic_eq_rounded, Color(0xFF3949AB)),
+    ('Country', Icons.landscape_rounded, Color(0xFFEF6C00)),
+    ('Latin', Icons.celebration_rounded, Color(0xFFC62828)),
+    ('Jazz', Icons.piano_rounded, Color(0xFF5D4037)),
+    ('Chill', Icons.spa_rounded, Color(0xFF00838F)),
+    ('Workout', Icons.fitness_center_rounded, Color(0xFF2E7D32)),
+    ('Focus', Icons.center_focus_strong_rounded, Color(0xFF546E7A)),
+    ('Sleep', Icons.bedtime_rounded, Color(0xFF283593)),
+  ];
+
+  static Widget genreGrid(BuildContext context) => GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.45,
+        children: [
+          for (var i = 0; i < _genres.length; i++)
+            XpPopIn(
+              index: i,
+              child: _tile(context, _genres[i].$1, _genres[i].$2, _genres[i].$3,
+                  () => _search(context, '${_genres[i].$1} playlists', 4)),
+            ),
+        ],
+      );
+
+  static void _search(BuildContext context, String q, int filter) => Navigator.of(context)
+      .push(xpRoute(Scaffold(body: XpSearchPage(back: true, initialQuery: q, initialFilter: filter))));
+
+  static Widget _tile(BuildContext context, String name, IconData icon, Color color, VoidCallback onTap, {double h = 116}) {
+    return XpPress(
+      amount: 0.5,
+      onTap: onTap,
+      child: Container(
+        height: h,
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(children: [
+          Positioned(right: -16, bottom: -16, child: Icon(icon, size: h * 0.95, color: Colors.white.withOpacity(0.22))),
+          Positioned(left: 18, bottom: 16, right: 40, child: Text(name, style: xpT(20, c: Colors.white, w: FontWeight.w800))),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      pmTopBar(context, 'Browse', onMenu),
+      Expanded(
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(14, 6, 14, xpBottomPad(context)),
+          children: [
+            Row(children: [
+              Expanded(
+                  child: XpPopIn(
+                      child: _tile(context, 'Top charts', Icons.trending_up_rounded, const Color(0xFFE64A19),
+                          () => _search(context, 'Top 100 songs global', 4), h: 130))),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: XpPopIn(
+                      index: 1,
+                      child: _tile(context, 'New releases', Icons.new_releases_rounded, const Color(0xFF1E88E5),
+                          () => _search(context, 'New releases ${DateTime.now().year}', 3), h: 130))),
+            ]),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 22, 4, 12),
+              child: Text('Genres & moods', style: xpT(21, w: FontWeight.w700)),
+            ),
+            genreGrid(context),
+          ],
+        ),
+      ),
+    ]);
+  }
+}
+
+// ── Play Music player style ──
+class _PmPlayer extends StatelessWidget {
+  final TrackItem track;
+  const _PmPlayer({required this.track});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final t = track;
+    return LayoutBuilder(builder: (context, c) {
+      final art = min(c.maxWidth - 32, c.maxHeight * 0.48);
+      return Column(children: [
+        _xpTopBar(context, t),
+        const SizedBox(height: 6),
+        Center(child: XpPlayerArt(track: t, size: art, forceShape: XpShape.square)),
+        const Spacer(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: _xpTitle(context, t, center: true, size: 24),
+        ),
+        const SizedBox(height: 14),
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 22), child: XpWaveSeek()),
+        const Spacer(),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          ListenableBuilder(
+            listenable: appState,
+            builder: (context, _) {
+              final liked = appState.isLiked(t.id);
+              return XpIconBtn(liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
+                  size: 52,
+                  bg: liked ? cs.primaryContainer : Colors.transparent,
+                  fg: liked ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                  tip: 'Thumbs up',
+                  onTap: () => appState.toggleLike(t.id));
+            },
+          ),
+          XpIconBtn(Icons.skip_previous_rounded, size: 58, bg: Colors.transparent, onTap: audioHandler.skipToPrevious),
+          const XpPlayButton(size: 84, pausedShape: XpShape.circle, playingShape: XpShape.cookie9),
+          XpIconBtn(Icons.skip_next_rounded, size: 58, bg: Colors.transparent, onTap: audioHandler.skipToNext),
+          XpIconBtn(Icons.playlist_add_rounded, size: 52, bg: Colors.transparent, fg: cs.onSurfaceVariant, tip: 'Add to playlist',
+              onTap: () => t.isYouTube ? showYtAddToPlaylist(context, t) : showAddToPlaylistSheet(context, t)),
+        ]),
+        const Spacer(),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 18), child: _xpActions(context, t)),
+        const SizedBox(height: 12),
+      ]);
+    });
+  }
 }
