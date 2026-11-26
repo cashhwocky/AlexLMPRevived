@@ -467,7 +467,7 @@ jobs:
           fi
           VERSION_NAME=$(grep -oP "kAppVersion = '\K[^']+" custom/main.dart || echo "2.0.0")
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$((10000 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((100000 + ${{ github.run_number }} * 5000))" >> "$GITHUB_ENV"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then AUTO_TAG="$GITHUB_REF_NAME"; else AUTO_TAG="v${VERSION_NAME}.${{ github.run_number }}"; fi
           echo "AUTO_TAG=$AUTO_TAG" >> "$GITHUB_ENV"
           echo "Building version $VERSION_NAME"

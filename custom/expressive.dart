@@ -47,9 +47,16 @@ bool _xpInited = false;
 int _xpSeq = 0;
 
 /// Call once at start-up. Keeps [xpScheme] in step with the playing song.
+/// Bumps whenever the playing song changes, even when the queue index doesn't
+/// (e.g. starting a new list at position 0).
+final ValueNotifier<String?> xpNowId = ValueNotifier<String?>(null);
+final Listenable xpNowPlaying = Listenable.merge([audioHandler.currentIndex, xpNowId]);
+
 void xpInit() {
   if (_xpInited) return;
   _xpInited = true;
+  audioHandler.mediaItem.listen((m) => xpNowId.value = m?.id);
+  xpNowId.addListener(xpRefreshColors);
   if (!appState.b('pm_player_v1')) {
     appState.setB('pm_player_v1', true);
     appState.setStr('xp_player', 'playmusic');
@@ -1349,9 +1356,9 @@ class _XpMiniPlayerState extends State<XpMiniPlayer> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
-    return ValueListenableBuilder<int>(
-      valueListenable: audioHandler.currentIndex,
-      builder: (context, _, __) {
+    return ListenableBuilder(
+      listenable: xpNowPlaying,
+      builder: (context, _) {
         final t = audioHandler.currentTrack;
         return AnimatedSize(
           duration: const Duration(milliseconds: 380),
@@ -1581,7 +1588,7 @@ class _XpHomePageState extends State<XpHomePage> {
     final cs = context.cs;
     final top = MediaQuery.of(context).padding.top;
     return ListenableBuilder(
-      listenable: Listenable.merge([appState, ytAccount, LibraryStore.revision, audioHandler.currentIndex]),
+      listenable: Listenable.merge([appState, ytAccount, LibraryStore.revision, xpNowPlaying]),
       builder: (context, _) {
         final yt = appState.homeMode == 'youtube';
         final acct = ytAccount.value;
@@ -3829,7 +3836,7 @@ class XpPlayerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return XpThemed(
       child: ListenableBuilder(
-        listenable: Listenable.merge([appState, audioHandler.currentIndex]),
+        listenable: Listenable.merge([appState, xpNowPlaying]),
         builder: (context, _) {
           final t = audioHandler.currentTrack;
           final cs = context.cs;
@@ -4863,9 +4870,9 @@ class XpLyricsPage extends StatelessWidget {
           ),
         ),
         child: SafeArea(
-          child: ValueListenableBuilder<int>(
-            valueListenable: audioHandler.currentIndex,
-            builder: (context, _, __) {
+          child: ListenableBuilder(
+            listenable: xpNowPlaying,
+            builder: (context, _) {
               final t = audioHandler.currentTrack ?? track;
               return Column(children: [
                 Padding(
@@ -5851,7 +5858,7 @@ class _XpCollectionPageState extends State<XpCollectionPage> {
     final cs = context.cs;
     final top = MediaQuery.of(context).padding.top;
     return ListenableBuilder(
-      listenable: Listenable.merge([appState, LibraryStore.revision, OfflineStore.revision, audioHandler.currentIndex]),
+      listenable: Listenable.merge([appState, LibraryStore.revision, OfflineStore.revision, xpNowPlaying]),
       builder: (context, _) {
         var tracks = _tracks;
         if (_filter.isNotEmpty) {
@@ -7486,7 +7493,7 @@ class PmRecentsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([appState, LibraryStore.revision, audioHandler.currentIndex]),
+      listenable: Listenable.merge([appState, LibraryStore.revision, xpNowPlaying]),
       builder: (context, _) {
         final items = <PmCard>[];
         final seen = <String>{};
@@ -7873,7 +7880,7 @@ class _PmPlayer extends StatelessWidget {
 
   String _fmt(Duration d) {
     final m = d.inMinutes, s = d.inSeconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -7881,172 +7888,250 @@ class _PmPlayer extends StatelessWidget {
     final cs = context.cs;
     final t = track;
     return LayoutBuilder(builder: (context, c) {
-      final art = min(c.maxWidth, max(160.0, c.maxHeight - 330));
+      final art = max(160.0, min(c.maxWidth - 36, c.maxHeight - 76 - 250));
       return Column(children: [
-        // Header
+        // Header: small art, title, queue, menu. Tap to close.
         XpPress(
           amount: 0.3,
           onTap: () => Navigator.maybePop(context),
-          child: Container(
-            height: 76,
-            color: cs.surface,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
             child: Row(children: [
-              SizedBox(width: 76, height: 76, child: xpTrackArt(t)),
+              ClipRRect(borderRadius: BorderRadius.circular(14), child: SizedBox(width: 56, height: 56, child: xpTrackArt(t))),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(17, w: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: xpT(14.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
-                ]),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Column(
+                    key: ValueKey(t.id),
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(18, w: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: xpT(14.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
               ),
-              IconButton(icon: Icon(Icons.queue_music_rounded, color: cs.onSurface), tooltip: 'Queue',
-                  onPressed: () => showXpQueueSheet(context)),
-              IconButton(icon: Icon(Icons.more_vert_rounded, color: cs.onSurface), tooltip: 'More',
-                  onPressed: () => _xpMoreSheet(context, t)),
-              const SizedBox(width: 4),
+              XpIconBtn(Icons.queue_music_rounded, size: 46, bg: Colors.transparent, fg: cs.onSurface, tip: 'Queue',
+                  onTap: () => showXpQueueSheet(context)),
+              XpIconBtn(Icons.more_vert_rounded, size: 46, bg: Colors.transparent, fg: cs.onSurface, tip: 'More',
+                  onTap: () => _xpMoreSheet(context, t)),
             ]),
           ),
         ),
-        Divider(height: 1, thickness: 1, color: cs.outlineVariant.withOpacity(0.5)),
-        // Art with the overlay controls
-        SizedBox(
-          width: c.maxWidth,
-          height: art,
-          child: GestureDetector(
-            onDoubleTap: () {
-              HapticFeedback.mediumImpact();
-              appState.toggleLike(t.id);
-            },
-            onHorizontalDragEnd: (d) {
-              final v = d.primaryVelocity ?? 0;
-              if (v < -300) audioHandler.skipToNext();
-              if (v > 300) audioHandler.skipToPrevious();
-            },
-            child: Stack(fit: StackFit.expand, children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                child: KeyedSubtree(
-                  key: ValueKey(t.id),
-                  child: SizedBox.expand(child: FittedBox(fit: BoxFit.cover, clipBehavior: Clip.hardEdge,
-                      child: SizedBox(width: 600, height: 600, child: xpTrackArt(t, hiRes: true)))),
+        Expanded(
+          child: Column(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+            // Art with a frosted control pill over it
+            GestureDetector(
+              onDoubleTap: () {
+                HapticFeedback.mediumImpact();
+                appState.toggleLike(t.id);
+              },
+              onHorizontalDragEnd: (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v < -300) audioHandler.skipToNext();
+                if (v > 300) audioHandler.skipToPrevious();
+              },
+              child: Container(
+                width: art,
+                height: art,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(32),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withOpacity(cs.brightness == Brightness.light ? 0.18 : 0.5),
+                        blurRadius: 30,
+                        offset: const Offset(0, 14)),
+                  ],
                 ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  height: 58,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.black.withOpacity(0.0), Colors.black.withOpacity(0.45)],
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(32),
+                  child: Stack(fit: StackFit.expand, children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      transitionBuilder: (c, a) => FadeTransition(
+                          opacity: a, child: ScaleTransition(scale: Tween(begin: 0.94, end: 1.0).animate(a), child: c)),
+                      child: KeyedSubtree(
+                        key: ValueKey(t.id),
+                        child: SizedBox.expand(
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox(width: 600, height: 600, child: xpTrackArt(t, hiRes: true)),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  child: StreamBuilder<PlaybackState>(
-                    stream: audioHandler.playbackState,
-                    builder: (context, snap) {
-                      final shuffle = snap.data?.shuffleMode == AudioServiceShuffleMode.all;
-                      final repeat = snap.data?.repeatMode ?? AudioServiceRepeatMode.none;
-                      Widget b(IconData i, bool on, VoidCallback f, String tip) => IconButton(
-                            tooltip: tip,
-                            iconSize: 28,
-                            icon: Icon(i, color: on ? cs.primary : Colors.white,
-                                shadows: const [Shadow(color: Colors.black54, blurRadius: 6)]),
-                            onPressed: () {
-                              HapticFeedback.selectionClick();
-                              f();
-                            },
-                          );
-                      return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        const SizedBox(width: 8),
-                        b(repeat == AudioServiceRepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                            repeat != AudioServiceRepeatMode.none, () {
-                          audioHandler.setRepeatMode(switch (repeat) {
-                            AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
-                            AudioServiceRepeatMode.all => AudioServiceRepeatMode.one,
-                            _ => AudioServiceRepeatMode.none,
-                          });
-                        }, 'Repeat'),
-                        b(Icons.subtitles_rounded, false, () => Navigator.of(context).push(xpRoute(XpLyricsPage(track: t))), 'Lyrics'),
-                        b(Icons.shuffle_rounded, shuffle, () => audioHandler.setShuffleMode(
-                            shuffle ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all), 'Shuffle'),
-                        const SizedBox(width: 8),
-                      ]);
-                    },
-                  ),
+                    Positioned(left: 0, right: 0, bottom: 14, child: Center(child: _PmArtPill(track: t))),
+                  ]),
                 ),
               ),
-            ]),
-          ),
+            ),
+            // Seek bar
+            SizedBox(width: art + 8, child: _PmSeek(track: t, fmt: _fmt)),
+            // Controls
+            ListenableBuilder(
+              listenable: appState,
+              builder: (context, _) {
+                final liked = appState.isLiked(t.id);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    XpIconBtn(liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
+                        size: 54,
+                        bg: liked ? cs.primaryContainer : cs.surfaceContainerHigh,
+                        fg: liked ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                        tip: 'Thumbs up',
+                        onTap: () => appState.toggleLike(t.id)),
+                    XpIconBtn(Icons.skip_previous_rounded, size: 60, bg: Colors.transparent, fg: cs.onSurface,
+                        onTap: audioHandler.skipToPrevious),
+                    XpPlayButton(size: 84, bg: cs.primary, fg: cs.onPrimary, pausedShape: XpShape.square, playingShape: XpShape.cookie9),
+                    XpIconBtn(Icons.skip_next_rounded, size: 60, bg: Colors.transparent, fg: cs.onSurface,
+                        onTap: audioHandler.skipToNext),
+                    XpIconBtn(Icons.thumb_down_outlined, size: 54, bg: cs.surfaceContainerHigh, fg: cs.onSurfaceVariant,
+                        tip: 'Thumbs down', onTap: () {
+                      if (appState.isLiked(t.id)) appState.toggleLike(t.id);
+                      xpSnack(context, 'Got it, skipping');
+                      audioHandler.skipToNext();
+                    }),
+                  ]),
+                );
+              },
+            ),
+          ]),
         ),
-        // Seek bar
-        StreamBuilder<Duration>(
-          stream: audioHandler.player.positionStream,
-          builder: (context, snap) {
-            final pos = snap.data ?? audioHandler.player.position;
-            final dur = audioHandler.player.duration ?? Duration(seconds: max(1, t.durationSeconds));
-            final total = max(1, dur.inMilliseconds);
-            final v = (pos.inMilliseconds / total).clamp(0.0, 1.0);
-            return Column(children: [
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3,
-                  activeTrackColor: cs.primary,
-                  inactiveTrackColor: cs.outlineVariant.withOpacity(0.6),
-                  thumbColor: cs.primary,
-                  overlayColor: cs.primary.withOpacity(0.15),
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                  trackShape: const RoundedRectSliderTrackShape(),
-                ),
-                child: SizedBox(
-                  height: 34,
-                  child: Slider(
-                    value: v,
-                    onChanged: (x) => audioHandler.seek(Duration(milliseconds: (x * total).round())),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Row(children: [
-                  Text(_fmt(pos), style: xpT(13.5, c: cs.primary, w: FontWeight.w600)),
-                  const Spacer(),
-                  Text(_fmt(dur), style: xpT(13.5, c: cs.onSurfaceVariant, w: FontWeight.w500)),
-                ]),
-              ),
-            ]);
-          },
-        ),
-        const Spacer(),
-        // Controls
-        ListenableBuilder(
-          listenable: appState,
-          builder: (context, _) {
-            final liked = appState.isLiked(t.id);
-            return Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              XpIconBtn(liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
-                  size: 54, bg: Colors.transparent, fg: liked ? cs.primary : cs.onSurface, tip: 'Thumbs up',
-                  onTap: () => appState.toggleLike(t.id)),
-              XpIconBtn(Icons.skip_previous_rounded, size: 58, bg: Colors.transparent, fg: cs.onSurface,
-                  onTap: audioHandler.skipToPrevious),
-              XpPlayButton(size: 78, bg: cs.primary, fg: cs.onPrimary, pausedShape: XpShape.circle, playingShape: XpShape.circle),
-              XpIconBtn(Icons.skip_next_rounded, size: 58, bg: Colors.transparent, fg: cs.onSurface,
-                  onTap: audioHandler.skipToNext),
-              XpIconBtn(Icons.thumb_down_outlined, size: 54, bg: Colors.transparent, fg: cs.onSurface, tip: 'Thumbs down',
-                  onTap: () {
-                if (appState.isLiked(t.id)) appState.toggleLike(t.id);
-                xpSnack(context, "Got it, skipping");
-                audioHandler.skipToNext();
-              }),
-            ]);
-          },
-        ),
-        const Spacer(),
+        const SizedBox(height: 8),
       ]);
     });
+  }
+}
+
+/// Frosted pill with repeat / lyrics / shuffle, floating over the art.
+class _PmArtPill extends StatelessWidget {
+  final TrackItem track;
+  const _PmArtPill({required this.track});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.32),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withOpacity(0.18)),
+          ),
+          child: StreamBuilder<PlaybackState>(
+            stream: audioHandler.playbackState,
+            builder: (context, snap) {
+              final shuffle = snap.data?.shuffleMode == AudioServiceShuffleMode.all;
+              final repeat = snap.data?.repeatMode ?? AudioServiceRepeatMode.none;
+              Widget b(IconData i, bool on, VoidCallback f, String tip) => Tooltip(
+                    message: tip,
+                    child: XpPress(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        f();
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutBack,
+                        width: on ? 60 : 50,
+                        height: 42,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: on ? cs.primary : Colors.transparent,
+                          borderRadius: BorderRadius.circular(21),
+                        ),
+                        child: Icon(i, size: 23, color: on ? cs.onPrimary : Colors.white),
+                      ),
+                    ),
+                  );
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                b(repeat == AudioServiceRepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                    repeat != AudioServiceRepeatMode.none, () {
+                  audioHandler.setRepeatMode(switch (repeat) {
+                    AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
+                    AudioServiceRepeatMode.all => AudioServiceRepeatMode.one,
+                    _ => AudioServiceRepeatMode.none,
+                  });
+                }, 'Repeat'),
+                b(Icons.lyrics_rounded, false, () => Navigator.of(context).push(xpRoute(XpLyricsPage(track: track))), 'Lyrics'),
+                b(Icons.equalizer_rounded, false, () => showXpToolsSheet(context), 'Sound & tools'),
+                b(Icons.shuffle_rounded, shuffle,
+                    () => audioHandler.setShuffleMode(shuffle ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all), 'Shuffle'),
+              ]);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Thick rounded seek bar with a pill thumb.
+class _PmSeek extends StatefulWidget {
+  final TrackItem track;
+  final String Function(Duration) fmt;
+  const _PmSeek({required this.track, required this.fmt});
+  @override
+  State<_PmSeek> createState() => _PmSeekState();
+}
+
+class _PmSeekState extends State<_PmSeek> {
+  double? _drag;
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return StreamBuilder<Duration>(
+      stream: audioHandler.player.positionStream,
+      builder: (context, snap) {
+        final pos = snap.data ?? audioHandler.player.position;
+        final dur = audioHandler.player.duration ?? Duration(seconds: max(1, widget.track.durationSeconds));
+        final total = max(1, dur.inMilliseconds);
+        final v = _drag ?? (pos.inMilliseconds / total).clamp(0.0, 1.0);
+        final shown = _drag == null ? pos : Duration(milliseconds: (v * total).round());
+        return Column(mainAxisSize: MainAxisSize.min, children: [
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 8,
+              activeTrackColor: cs.primary,
+              inactiveTrackColor: cs.surfaceContainerHighest,
+              thumbColor: cs.primary,
+              overlayColor: cs.primary.withOpacity(0.14),
+              thumbShape: RoundSliderThumbShape(enabledThumbRadius: _drag == null ? 9 : 12),
+              trackShape: const RoundedRectSliderTrackShape(),
+            ),
+            child: SizedBox(
+              height: 36,
+              child: Slider(
+                value: v,
+                onChangeStart: (x) => setState(() => _drag = x),
+                onChanged: (x) => setState(() => _drag = x),
+                onChangeEnd: (x) {
+                  audioHandler.seek(Duration(milliseconds: (x * total).round()));
+                  setState(() => _drag = null);
+                },
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            child: Row(children: [
+              Text(widget.fmt(shown), style: xpT(13.5, c: cs.primary, w: FontWeight.w700)),
+              const Spacer(),
+              Text(widget.fmt(dur), style: xpT(13.5, c: cs.onSurfaceVariant, w: FontWeight.w500)),
+            ]),
+          ),
+        ]);
+      },
+    );
   }
 }

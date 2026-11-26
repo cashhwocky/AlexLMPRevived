@@ -1,3 +1,12 @@
+# AlexLMP Revived 2.2.2
+
+- Modernized the Play Music player: rounded album art with a soft shadow, a frosted pill on the art for repeat, lyrics, sound tools and shuffle, a thicker seek bar, and tonal thumbs up / thumbs down buttons
+- The player now fits any screen size, with no big empty gaps or cropped art
+- Fixed the mini player and player not updating when you start a different song
+- Fixed "version downgrade" when updating: every new release now installs over any older one, whichever APK you use (universal or arm64). If this update itself says downgrade, uninstall once and install it; after that, updates install normally
+
+If you enjoy the app, consider supporting development. <3
+
 # AlexLMP Revived 2.2.1
 
 - New default player that matches Play Music: song header with queue and menu, edge-to-edge album art with repeat, lyrics and shuffle on it, thin orange seek bar, and the thumbs up / thumbs down control row
