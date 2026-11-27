@@ -1,3 +1,9 @@
+# AlexLMP Revived 2.3.1
+
+- Fixed update prompts not showing in the Stream and Play Music layouts
+
+If you enjoy the app, consider supporting development. <3
+
 # AlexLMP Revived 2.3
 
 ## New look: Stream

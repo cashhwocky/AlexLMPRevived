@@ -6851,6 +6851,9 @@ class _PmShellState extends State<PmShell> {
   void initState() {
     super.initState();
     xpInit();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkRevivedUpdate(context);
+    });
   }
 
   Widget _page(int i) {
@@ -8217,6 +8220,9 @@ class _SpShellState extends State<SpShell> {
   void initState() {
     super.initState();
     xpInit();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkRevivedUpdate(context);
+    });
   }
 
   void _go(int i) {
