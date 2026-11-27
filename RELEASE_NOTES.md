@@ -1,3 +1,16 @@
+# AlexLMP Revived 2.3
+
+## New look: Stream
+A clean, familiar streaming-app style that anyone can pick up, now the default.
+- Home: greeting, quick chips (YouTube Music, On this phone, AI DJ, Ask AI), a grid of quick tiles for your most-played stuff, then rows of covers
+- Search: a big search bar and colorful Browse all tiles
+- Your Library: one list of playlists, albums and artists with filter chips, Recents or A to Z sort, and a list/grid switch. Liked Songs and Downloaded stay pinned at the top
+- Mini player takes the color of the album cover, with a heart, play/pause and a thin progress line. Swipe it to skip, swipe up to open
+- New Stream player: sits on a color wash from the cover, big art that eases back when paused, heart next to the title, white play button, shuffle and repeat with dots when on, plus lyrics, sound tools, sleep timer and queue
+- Dark by default, light theme in Settings > Look. Play Music and Expressive layouts are still there under Layout
+
+If you enjoy the app, consider supporting development. <3
+
 # AlexLMP Revived 2.2.2
 
 - Modernized the Play Music player: rounded album art with a soft shadow, a frosted pill on the art for repeat, lyrics, sound tools and shuffle, a thicker seek bar, and tonal thumbs up / thumbs down buttons

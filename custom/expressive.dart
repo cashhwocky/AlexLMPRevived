@@ -20,15 +20,36 @@ import 'revived_shell.dart';
 
 const Color kXpDefaultSeed = Color(0xFFFF5722);
 
-/// Light (Play Music style) unless the user picked dark.
-bool get xpLightMode => appState.str('xp_theme', 'light') == 'light';
+String get xpLayout => appState.str('xp_layout', 'stream');
+
+/// Stream layout is dark by default, Play Music is light by default.
+bool get xpLightMode => appState.str('xp_theme', xpLayout == 'stream' ? 'dark' : 'light') == 'light';
 
 final Map<String, ColorScheme> _xpSchemes = {};
 ColorScheme _xpSchemeFor(Color seed) {
   final light = xpLightMode;
   final dyn = appState.b('xp_dynamic', false);
-  return _xpSchemes.putIfAbsent('${seed.value}_${light}_$dyn', () {
+  final stream = xpLayout == 'stream';
+  return _xpSchemes.putIfAbsent('${seed.value}_${light}_${dyn}_$stream', () {
     var cs = ColorScheme.fromSeed(seedColor: seed, brightness: light ? Brightness.light : Brightness.dark);
+    if (stream) {
+      // Neutral greys like a normal streaming app; colour only as accent.
+      final accent = dyn ? cs.primary : (light ? const Color(0xFFE8501F) : const Color(0xFFFF6B3D));
+      cs = light
+          ? cs.copyWith(
+              primary: accent, onPrimary: Colors.white,
+              surface: Colors.white, onSurface: const Color(0xFF121212), onSurfaceVariant: const Color(0xFF6A6A6A),
+              surfaceContainerLowest: Colors.white, surfaceContainerLow: const Color(0xFFF7F7F7),
+              surfaceContainer: const Color(0xFFF0F0F0), surfaceContainerHigh: const Color(0xFFE9E9E9),
+              surfaceContainerHighest: const Color(0xFFDEDEDE), outlineVariant: const Color(0xFFDDDDDD))
+          : cs.copyWith(
+              primary: accent, onPrimary: Colors.black,
+              surface: const Color(0xFF121212), onSurface: Colors.white, onSurfaceVariant: const Color(0xFFB3B3B3),
+              surfaceContainerLowest: const Color(0xFF0A0A0A), surfaceContainerLow: const Color(0xFF181818),
+              surfaceContainer: const Color(0xFF1F1F1F), surfaceContainerHigh: const Color(0xFF2A2A2A),
+              surfaceContainerHighest: const Color(0xFF353535), outlineVariant: const Color(0xFF3A3A3A));
+      return cs;
+    }
     if (!dyn && seed.value == kXpDefaultSeed.value) {
       // The classic Play Music orange.
       cs = light
@@ -57,9 +78,11 @@ void xpInit() {
   _xpInited = true;
   audioHandler.mediaItem.listen((m) => xpNowId.value = m?.id);
   xpNowId.addListener(xpRefreshColors);
-  if (!appState.b('pm_player_v1')) {
+  if (!appState.b('sp_v1')) {
+    appState.setB('sp_v1', true);
     appState.setB('pm_player_v1', true);
-    appState.setStr('xp_player', 'playmusic');
+    appState.setStr('xp_layout', 'stream');
+    appState.setStr('xp_player', 'stream');
   }
   audioHandler.currentIndex.addListener(xpRefreshColors);
   appState.addListener(_xpSettingsChanged);
@@ -69,7 +92,7 @@ void xpInit() {
 
 String _xpLastColorKey = '';
 void _xpSettingsChanged() {
-  final k = '${appState.b('xp_dynamic', false)}_${appState.str('xp_seed', '')}_${appState.str('xp_theme', 'light')}';
+  final k = '${appState.b('xp_dynamic', false)}_${appState.str('xp_seed', '')}_${appState.str('xp_theme', '')}_$xpLayout';
   if (k != _xpLastColorKey) {
     _xpLastColorKey = k;
     xpRefreshColors();
@@ -3330,7 +3353,7 @@ class XpYouPage extends StatelessWidget {
               ),
             ),
             _group(context, 'Player', [
-              _row(context, Icons.style_rounded, 'Player style', xpPlayerStyleName(appState.str('xp_player', 'playmusic')),
+              _row(context, Icons.style_rounded, 'Player style', xpPlayerStyleName(appState.str('xp_player', 'stream')),
                   () => showXpPlayerStylePicker(context)),
               _toggle(context, Icons.crop_square_rounded, 'Rounded square album art',
                   'Tap the art in the player to switch', appState.str('xp_art_shape', 'cookie') == 'square',
@@ -3732,11 +3755,13 @@ class _XpStatsPageState extends State<XpStatsPage> {
 // ═══════════════════════════════ Player ═══════════════════════════════
 
 const List<(String, String, String, IconData)> kPmLayouts = [
+  ('stream', 'Stream', 'Clean dark streaming look: Home, Search and Your Library', Icons.graphic_eq_rounded),
   ('playmusic', 'Play Music', 'Home, Recents, Library and Browse with a side menu', Icons.headphones_rounded),
   ('expressive', 'Expressive', 'The shape-heavy layout with Search and You tabs', Icons.auto_awesome_rounded),
 ];
 
 const List<(String, String, String, IconData)> kXpPlayerStyles = [
+  ('stream', 'Stream', 'Big art on a colour wash from the cover, heart, white play button', Icons.graphic_eq_rounded),
   ('playmusic', 'Play Music', 'Big rounded art, thumbs up and the classic control row', Icons.headphones_rounded),
   ('expressive', 'Expressive', 'Shaped art with a spinning shape behind it, big connected buttons, wavy seek bar', Icons.auto_awesome_rounded),
   ('canvas', 'Canvas', 'Art fills the top of the screen and fades into the controls', Icons.wallpaper_rounded),
@@ -3760,7 +3785,7 @@ void showXpPlayerStylePicker(BuildContext context) {
         return ListenableBuilder(
           listenable: appState,
           builder: (ctx, _) {
-            final cur = appState.str('xp_player', 'playmusic');
+            final cur = appState.str('xp_player', 'stream');
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -3846,7 +3871,7 @@ class XpPlayerScreen extends StatelessWidget {
               body: Center(child: Text('Nothing playing', style: xpT(18, c: cs.onSurfaceVariant))),
             );
           }
-          final style = appState.str('xp_player', 'playmusic');
+          final style = appState.str('xp_player', 'stream');
           Widget body;
           switch (style) {
             case 'canvas':
@@ -3870,6 +3895,9 @@ class XpPlayerScreen extends StatelessWidget {
             case 'playmusic':
               body = _PmPlayer(track: t);
               break;
+            case 'stream':
+              body = _SpPlayer(track: t);
+              break;
             default:
               body = _XpExpressivePlayer(track: t);
           }
@@ -3877,7 +3905,7 @@ class XpPlayerScreen extends StatelessWidget {
             backgroundColor: cs.surface,
             body: _XpSwipeDown(
               child: Stack(children: [
-                if (style != 'playmusic') const Positioned.fill(child: _XpPlayerBackdrop()),
+                if (style != 'playmusic' && style != 'stream') const Positioned.fill(child: _XpPlayerBackdrop()),
                 Positioned.fill(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 420),
@@ -6512,11 +6540,11 @@ class XpSettingsPage extends StatelessWidget {
               child: Column(children: [
                 xpSettingsGroup(context, 'Look', [
                   xpSettingsRow(context, Icons.dashboard_customize_rounded, 'Layout',
-                      _xpStyleName(kPmLayouts, appState.str('xp_layout', 'playmusic')),
-                      () => showXpChoiceSheet(context, 'Layout', 'xp_layout', 'playmusic', kPmLayouts)),
-                  xpSettingsToggle(context, Icons.dark_mode_rounded, 'Dark theme', 'Light is the classic Play Music look',
+                      _xpStyleName(kPmLayouts, xpLayout),
+                      () => showXpChoiceSheet(context, 'Layout', 'xp_layout', 'stream', kPmLayouts)),
+                  xpSettingsToggle(context, Icons.dark_mode_rounded, 'Dark theme', 'Light or dark, in any layout',
                       !xpLightMode, (v) => appState.setStr('xp_theme', v ? 'dark' : 'light')),
-                  xpSettingsToggle(context, Icons.palette_rounded, 'Colors from album art', 'Off keeps the Play Music orange',
+                  xpSettingsToggle(context, Icons.palette_rounded, 'Colors from album art', 'Off keeps the orange accent',
                       appState.b('xp_dynamic', false), (v) => appState.setB('xp_dynamic', v)),
                 ]),
                 xpSettingsGroup(context, 'Home & tabs', [
@@ -6542,7 +6570,7 @@ class XpSettingsPage extends StatelessWidget {
                 ]),
                 xpSettingsGroup(context, 'Player', [
                   xpSettingsRow(context, Icons.style_rounded, 'Player style',
-                      xpPlayerStyleName(appState.str('xp_player', 'playmusic')), () => showXpPlayerStylePicker(context)),
+                      xpPlayerStyleName(appState.str('xp_player', 'stream')), () => showXpPlayerStylePicker(context)),
                   xpSettingsToggle(context, Icons.crop_square_rounded, 'Rounded square album art', 'Or tap the art in the player',
                       appState.str('xp_art_shape', 'cookie') == 'square',
                       (v) => appState.setStr('xp_art_shape', v ? 'square' : 'cookie')),
@@ -8128,6 +8156,1377 @@ class _PmSeekState extends State<_PmSeek> {
               Text(widget.fmt(shown), style: xpT(13.5, c: cs.primary, w: FontWeight.w700)),
               const Spacer(),
               Text(widget.fmt(dur), style: xpT(13.5, c: cs.onSurfaceVariant, w: FontWeight.w500)),
+            ]),
+          ),
+        ]);
+      },
+    );
+  }
+}
+
+// ═══════════════════════════════ Stream layout ═══════════════════════════════
+// A clean, familiar streaming-app look: Home / Search / Your Library, quick
+// tiles, plain card shelves, a mini player tinted by the cover, and a player
+// that sits on a colour wash taken from the album art.
+
+final Map<String, Color> _spColors = {};
+
+/// Cover colour for a track, cached; null until it has been worked out.
+Color? spArtColorNow(TrackItem? t) => t == null ? null : (_spColors[t.id] ?? artSeedNow(t));
+
+Future<Color?> spArtColor(TrackItem? t) async {
+  if (t == null) return null;
+  final now = spArtColorNow(t);
+  if (now != null) return now;
+  try {
+    final c = await artSeedFor(t);
+    _spColors[t.id] = c;
+    return c;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Darkens a cover colour so white text always reads on it.
+Color spWash(Color c, [double amount = 0.45]) {
+  final h = HSLColor.fromColor(c);
+  return h.withLightness((h.lightness * (1 - amount)).clamp(0.12, 0.34)).withSaturation((h.saturation * 0.85).clamp(0.0, 1.0)).toColor();
+}
+
+String spGreeting() {
+  final h = DateTime.now().hour;
+  if (h < 5) return 'Good night';
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+class SpShell extends StatefulWidget {
+  final Widget Function(AppPalette pal)? aiChatBuilder;
+  const SpShell({super.key, this.aiChatBuilder});
+  @override
+  State<SpShell> createState() => _SpShellState();
+}
+
+class _SpShellState extends State<SpShell> {
+  late int _tab = const {'search': 1, 'library': 2}[appState.str('xp_start_tab', 'home')] ?? 0;
+  int _dir = 1;
+  late final Set<int> _visited = {_tab};
+
+  @override
+  void initState() {
+    super.initState();
+    xpInit();
+  }
+
+  void _go(int i) {
+    if (i == _tab) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _dir = i > _tab ? 1 : -1;
+      _tab = i;
+      _visited.add(i);
+    });
+  }
+
+  Widget _page(int i) => switch (i) {
+        1 => SpSearchPage(onGoTab: _go),
+        2 => const SpLibraryPage(),
+        _ => SpHomePage(aiChatBuilder: widget.aiChatBuilder),
+      };
+
+  @override
+  Widget build(BuildContext context) => XpThemed(child: Builder(builder: _build));
+
+  Widget _build(BuildContext context) {
+    final cs = context.cs;
+    final light = cs.brightness == Brightness.light;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: light ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: cs.surface,
+      systemNavigationBarIconBrightness: light ? Brightness.dark : Brightness.light,
+    ));
+    return PopScope(
+      canPop: _tab == 0,
+      onPopInvoked: (did) {
+        if (!did) _go(0);
+      },
+      child: Scaffold(
+        backgroundColor: cs.surface,
+        resizeToAvoidBottomInset: false,
+        body: Stack(children: [
+          for (final i in (_visited.toList()..sort()))
+            Positioned.fill(
+              key: ValueKey('sp$i'),
+              child: Offstage(
+                offstage: i != _tab,
+                child: TickerMode(
+                  enabled: i == _tab,
+                  child: _XpTabIn(active: i == _tab, dir: _dir.toDouble(), child: _page(i)),
+                ),
+              ),
+            ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [cs.surface.withOpacity(0), cs.surface.withOpacity(0.92), cs.surface],
+                  stops: const [0, 0.42, 1],
+                ),
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const SizedBox(height: 26),
+                const SpMiniPlayer(),
+                _SpNav(current: _tab, onSelect: _go),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _SpNav extends StatelessWidget {
+  final int current;
+  final ValueChanged<int> onSelect;
+  const _SpNav({required this.current, required this.onSelect});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    const items = [
+      (Icons.home_outlined, Icons.home_rounded, 'Home'),
+      (Icons.search_rounded, Icons.manage_search_rounded, 'Search'),
+      (Icons.library_music_outlined, Icons.library_music_rounded, 'Your Library'),
+    ];
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
+      child: SizedBox(
+        height: 64,
+        child: Row(children: [
+          for (var i = 0; i < items.length; i++)
+            Expanded(
+              child: XpPress(
+                amount: 0.8,
+                onTap: () => onSelect(i),
+                child: Container(
+                  color: Colors.transparent,
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
+                      child: Icon(
+                        i == current ? items[i].$2 : items[i].$1,
+                        key: ValueKey(i == current),
+                        size: 27,
+                        color: i == current ? cs.onSurface : cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(items[i].$3,
+                        style: xpT(11.5,
+                            w: i == current ? FontWeight.w700 : FontWeight.w500,
+                            c: i == current ? cs.onSurface : cs.onSurfaceVariant)),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutBack,
+                      margin: const EdgeInsets.only(top: 3),
+                      width: i == current ? 18 : 0,
+                      height: 3,
+                      decoration: BoxDecoration(color: cs.primary, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Mini player tinted with the cover colour, thin progress line at the bottom.
+class SpMiniPlayer extends StatefulWidget {
+  const SpMiniPlayer({super.key});
+  @override
+  State<SpMiniPlayer> createState() => _SpMiniPlayerState();
+}
+
+class _SpMiniPlayerState extends State<SpMiniPlayer> with SingleTickerProviderStateMixin {
+  late final AnimationController _dx = AnimationController.unbounded(vsync: this, value: 0);
+
+  @override
+  void dispose() {
+    _dx.dispose();
+    super.dispose();
+  }
+
+  void _end(double v) {
+    final x = _dx.value;
+    if (x < -70 || v < -600) {
+      HapticFeedback.lightImpact();
+      audioHandler.skipToNext();
+    } else if (x > 70 || v > 600) {
+      HapticFeedback.lightImpact();
+      audioHandler.skipToPrevious();
+    }
+    _dx.animateWith(SpringSimulation(const SpringDescription(mass: 1, stiffness: 380, damping: 20), x, 0, v / 400));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ListenableBuilder(
+      listenable: Listenable.merge([xpNowPlaying, appState]),
+      builder: (context, _) {
+        final t = audioHandler.currentTrack;
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          child: t == null
+              ? const SizedBox(width: double.infinity)
+              : FutureBuilder<Color?>(
+                  key: ValueKey(t.id),
+                  future: spArtColor(t),
+                  initialData: spArtColorNow(t),
+                  builder: (context, snap) {
+                    final bg = snap.data == null ? cs.surfaceContainerHigh : spWash(snap.data!);
+                    final liked = appState.isLiked(t.id);
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                      child: GestureDetector(
+                        onHorizontalDragUpdate: (d) => _dx.value += d.delta.dx,
+                        onHorizontalDragEnd: (d) => _end(d.primaryVelocity ?? 0),
+                        onVerticalDragEnd: (d) {
+                          if ((d.primaryVelocity ?? 0) < -300) openPlayer(context);
+                        },
+                        child: XpPress(
+                          amount: 0.25,
+                          onTap: () => openPlayer(context),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 500),
+                            height: 60,
+                            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+                            clipBehavior: Clip.antiAlias,
+                            child: Stack(children: [
+                              AnimatedBuilder(
+                                animation: _dx,
+                                builder: (context, child) => Transform.translate(offset: Offset(_dx.value * 0.6, 0), child: child),
+                                child: Row(children: [
+                                  const SizedBox(width: 8),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: SizedBox(width: 44, height: 44, child: xpTrackArt(t)),
+                                  ),
+                                  const SizedBox(width: 11),
+                                  Expanded(
+                                    child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                          style: xpT(14, c: Colors.white, w: FontWeight.w700)),
+                                      Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                          style: xpT(12.5, c: Colors.white70, w: FontWeight.w500)),
+                                    ]),
+                                  ),
+                                  XpIconBtn(liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                      size: 42, bg: Colors.transparent, fg: liked ? cs.primary : Colors.white,
+                                      tip: liked ? 'Remove from Liked Songs' : 'Add to Liked Songs',
+                                      onTap: () => appState.toggleLike(t.id)),
+                                  StreamBuilder<bool>(
+                                    stream: audioHandler.player.playingStream,
+                                    initialData: audioHandler.player.playing,
+                                    builder: (context, p) => XpIconBtn(
+                                      p.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                      size: 46,
+                                      bg: Colors.transparent,
+                                      fg: Colors.white,
+                                      onTap: () => p.data == true ? audioHandler.pause() : audioHandler.play(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ]),
+                              ),
+                              Positioned(
+                                left: 10,
+                                right: 10,
+                                bottom: 0,
+                                child: StreamBuilder<Duration>(
+                                  stream: audioHandler.player.positionStream,
+                                  builder: (context, s) {
+                                    final pos = s.data ?? Duration.zero;
+                                    final dur = audioHandler.player.duration ?? Duration(seconds: max(1, t.durationSeconds));
+                                    final v = (pos.inMilliseconds / max(1, dur.inMilliseconds)).clamp(0.0, 1.0);
+                                    return Container(
+                                      height: 2,
+                                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(1)),
+                                      alignment: Alignment.centerLeft,
+                                      child: FractionallySizedBox(
+                                        widthFactor: v,
+                                        child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(1))),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ]),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// Square cover with title and subtitle under it (no card background).
+class SpCard extends StatelessWidget {
+  final Widget art;
+  final String title;
+  final String sub;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool round;
+  final double size;
+  const SpCard({super.key, required this.art, required this.title, required this.sub, required this.onTap, this.onLongPress, this.round = false, this.size = 148});
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return SizedBox(
+      width: size,
+      child: XpPress(
+        amount: 0.6,
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Column(crossAxisAlignment: round ? CrossAxisAlignment.center : CrossAxisAlignment.start, children: [
+          Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: round ? BoxShape.circle : BoxShape.rectangle,
+              borderRadius: round ? null : BorderRadius.circular(10),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: art,
+          ),
+          const SizedBox(height: 8),
+          Text(title, maxLines: round ? 1 : 2, overflow: TextOverflow.ellipsis, textAlign: round ? TextAlign.center : TextAlign.start,
+              style: xpT(13.5, w: FontWeight.w700, h: 1.2)),
+          if (sub.isNotEmpty)
+            Text(sub, maxLines: round ? 1 : 2, overflow: TextOverflow.ellipsis, textAlign: round ? TextAlign.center : TextAlign.start,
+                style: xpT(12.5, w: FontWeight.w500, c: cs.onSurfaceVariant, h: 1.25)),
+        ]),
+      ),
+    );
+  }
+}
+
+Widget spShelf(BuildContext context, String title, List<Widget> cards, {double height = 222, String? sub}) {
+  final cs = context.cs;
+  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Padding(
+      padding: const EdgeInsets.fromLTRB(16, 26, 16, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (sub != null) Text(sub, style: xpT(12.5, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+        Text(title, style: xpT(22, w: FontWeight.w800)),
+      ]),
+    ),
+    SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: cards.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 14),
+        itemBuilder: (_, i) => XpPopIn(index: i, child: cards[i]),
+      ),
+    ),
+  ]);
+}
+
+/// Small rounded avatar that opens the account sheet / settings.
+Widget spAvatar(BuildContext context, {VoidCallback? onTap}) {
+  final cs = context.cs;
+  final acc = ytAccount.value;
+  return XpPress(
+    onTap: onTap ?? () => Navigator.of(context).push(xpRoute(const XpSettingsPage())),
+    child: CircleAvatar(
+      radius: 17,
+      backgroundColor: cs.primary,
+      backgroundImage: acc.signedIn && acc.photo != null ? NetworkImage(acc.photo!) : null,
+      child: acc.signedIn && acc.photo != null
+          ? null
+          : Text((acc.name ?? 'A').characters.first.toUpperCase(), style: xpT(15, c: cs.onPrimary, w: FontWeight.w800)),
+    ),
+  );
+}
+
+class _SpQuick {
+  final Widget art;
+  final String title;
+  final VoidCallback onTap;
+  final bool playing;
+  _SpQuick(this.art, this.title, this.onTap, {this.playing = false});
+}
+
+// ── Home ──
+class SpHomePage extends StatefulWidget {
+  final Widget Function(AppPalette pal)? aiChatBuilder;
+  const SpHomePage({super.key, this.aiChatBuilder});
+  @override
+  State<SpHomePage> createState() => _SpHomePageState();
+}
+
+class _SpHomePageState extends State<SpHomePage> {
+  late Future<List<YtShelf>> _feed = YouTubeMusic.homeFeed();
+
+  @override
+  void initState() {
+    super.initState();
+    YouTubeMusic.playlistPage('LM', title: 'Liked Music').then((_) {
+      if (mounted) setState(() {});
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, ytAccount, LibraryStore.revision]),
+      builder: (context, _) {
+        final yt = appState.homeMode == 'youtube';
+        return FutureBuilder<List<YtShelf>>(
+          future: yt ? _feed : null,
+          initialData: yt ? YouTubeMusic.cachedHomeFeed() : null,
+          builder: (context, snap) {
+            final shelves = snap.data ?? const <YtShelf>[];
+            final top = MediaQuery.of(context).padding.top;
+            return Stack(children: [
+              // A soft wash of the accent behind the greeting.
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 300,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [cs.primary.withOpacity(0.22), cs.surface.withOpacity(0)],
+                    ),
+                  ),
+                ),
+              ),
+              RefreshIndicator(
+                color: cs.primary,
+                onRefresh: () async {
+                  setState(() => _feed = YouTubeMusic.homeFeed(refresh: true));
+                  try {
+                    await _feed;
+                  } catch (_) {}
+                },
+                child: ListView(
+                  padding: EdgeInsets.only(top: top + 10, bottom: xpBottomPad(context)),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(children: [
+                        spAvatar(context),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text(spGreeting(), style: xpT(24, w: FontWeight.w800))),
+                        XpIconBtn(Icons.insights_rounded, size: 42, bg: Colors.transparent, fg: cs.onSurface, tip: 'Your stats',
+                            onTap: () => Navigator.of(context).push(xpRoute(const XpStatsPage()))),
+                        XpIconBtn(Icons.settings_outlined, size: 42, bg: Colors.transparent, fg: cs.onSurface, tip: 'Settings',
+                            onTap: () => Navigator.of(context).push(xpRoute(const XpSettingsPage()))),
+                      ]),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 36,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          _chip(context, 'YouTube Music', yt, () => appState.setStr('home_mode', 'youtube')),
+                          _chip(context, 'On this phone', !yt, () => appState.setStr('home_mode', 'local')),
+                          _chip(context, 'AI DJ', false, () => startOrStepAiDj(openInPlayer: context), icon: Icons.graphic_eq_rounded),
+                          if (widget.aiChatBuilder != null)
+                            _chip(context, 'Ask AI', false,
+                                () => Navigator.of(context).push(xpRoute(Scaffold(body: widget.aiChatBuilder!(appState.palette)))),
+                                icon: Icons.auto_awesome_rounded),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _quickGrid(context, yt, shelves),
+                    if (yt) ..._yt(context, shelves, snap.connectionState == ConnectionState.waiting) else ..._local(context),
+                  ],
+                ),
+              ),
+            ]);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _chip(BuildContext context, String label, bool on, VoidCallback onTap, {IconData? icon}) {
+    final cs = context.cs;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: XpPress(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          padding: const EdgeInsets.symmetric(horizontal: 15),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: on ? cs.primary : cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(18)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[Icon(icon, size: 16, color: on ? cs.onPrimary : cs.onSurface), const SizedBox(width: 6)],
+            Text(label, style: xpT(13.5, w: FontWeight.w600, c: on ? cs.onPrimary : cs.onSurface)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _quickGrid(BuildContext context, bool yt, List<YtShelf> shelves) {
+    final cs = context.cs;
+    final now = audioHandler.currentTrack;
+    final q = <_SpQuick>[];
+    final liked = xpLikedTracks();
+    q.add(_SpQuick(
+      Container(
+        decoration: BoxDecoration(gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, Colors.purple, 0.6)!])),
+        child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 24),
+      ),
+      'Liked Songs',
+      () => Navigator.of(context).push(xpRoute(const XpCollectionPage.liked())),
+    ));
+    for (final pl in appState.playlists) {
+      if (q.length >= 8) break;
+      q.add(_SpQuick(pmLocalPlaylistArt(pl), pl.name, () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: pl)))));
+    }
+    for (final i in LibraryStore.saved.reversed) {
+      if (q.length >= 8) break;
+      q.add(_SpQuick(xpUrlArt(i.thumbnail), i.title, () => LibraryStore.open(context, i)));
+    }
+    if (yt) {
+      for (final sh in shelves) {
+        for (final it in sh.items.where((i) => i.kind == 'playlist' || i.kind == 'album')) {
+          if (q.length >= 8) break;
+          q.add(_SpQuick(xpUrlArt(it.thumbnail), it.title, () => xpOpenShelf(context, it)));
+        }
+      }
+    }
+    final seen = <String>{};
+    for (final id in appState.recent) {
+      if (q.length >= 8) break;
+      final t = audioHandler.trackById(id);
+      if (t == null || !seen.add(t.id)) continue;
+      q.add(_SpQuick(xpTrackArt(t), t.title, () => xpPlay([t], 0), playing: now?.id == t.id));
+    }
+    if (liked.isEmpty && q.length == 1) q.clear();
+    if (q.isEmpty) return const SizedBox.shrink();
+    final rows = (q.length / 2).ceil();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(children: [
+        for (var r = 0; r < rows; r++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(children: [
+              for (var c = 0; c < 2; c++) ...[
+                if (c == 1) const SizedBox(width: 8),
+                Expanded(
+                  child: r * 2 + c < q.length
+                      ? XpPopIn(index: r * 2 + c, child: _quickTile(context, q[r * 2 + c]))
+                      : const SizedBox(),
+                ),
+              ],
+            ]),
+          ),
+      ]),
+    );
+  }
+
+  Widget _quickTile(BuildContext context, _SpQuick q) {
+    final cs = context.cs;
+    return XpPress(
+      amount: 0.5,
+      onTap: q.onTap,
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(color: cs.surfaceContainerHigh.withOpacity(0.85), borderRadius: BorderRadius.circular(8)),
+        clipBehavior: Clip.antiAlias,
+        child: Row(children: [
+          SizedBox(width: 56, height: 56, child: q.art),
+          const SizedBox(width: 10),
+          Expanded(child: Text(q.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: xpT(13, w: FontWeight.w700, h: 1.2))),
+          if (q.playing) Padding(padding: const EdgeInsets.only(right: 10), child: Icon(Icons.graphic_eq_rounded, color: cs.primary, size: 18)),
+          const SizedBox(width: 6),
+        ]),
+      ),
+    );
+  }
+
+  List<Widget> _yt(BuildContext context, List<YtShelf> shelves, bool waiting) {
+    if (shelves.isEmpty) {
+      return [
+        if (waiting)
+          const Padding(padding: EdgeInsets.all(40), child: Center(child: XpLoading()))
+        else
+          _XpEmpty(
+            icon: Icons.cloud_off_rounded,
+            title: ytAccount.value.signedIn ? "Couldn't load your feed" : 'Sign in to YouTube Music',
+            sub: ytAccount.value.signedIn ? 'Pull down to try again.' : 'Get your mixes, likes and playlists here.',
+            action: ytAccount.value.signedIn ? null : ('Sign in', () => showYtAccountSheet(context)),
+          ),
+      ];
+    }
+    final out = <Widget>[];
+    for (final sh in shelves) {
+      if (sh.items.isEmpty) continue;
+      final songs = sh.kind == 'song' || sh.items.every((i) => i.kind == 'video');
+      final title = sh.title.isEmpty ? 'Made for you' : sh.title;
+      if (songs) {
+        final list = [for (final it in sh.items) YouTubeMusic.trackFromShelf(it, it.subtitle)];
+        out.add(spShelf(context, title, [
+          for (var i = 0; i < list.length; i++)
+            SpCard(art: xpTrackArt(list[i]), title: list[i].title, sub: list[i].artist, onTap: () => xpPlay(list, i),
+                onLongPress: () => showXpTrackMenu(context, list[i])),
+        ]));
+      } else {
+        final artists = sh.items.every((i) => i.kind == 'artist');
+        out.add(spShelf(context, title, height: artists ? 196 : 222, [
+          for (final it in sh.items)
+            SpCard(
+              art: xpUrlArt(it.thumbnail, icon: it.kind == 'artist' ? Icons.person_rounded : Icons.album_rounded),
+              title: it.title,
+              sub: it.kind == 'artist' ? 'Artist' : it.subtitle,
+              round: it.kind == 'artist',
+              onTap: () => xpOpenShelf(context, it),
+            ),
+        ]));
+      }
+    }
+    return out;
+  }
+
+  List<Widget> _local(BuildContext context) {
+    final local = audioHandler.tracks.where((t) => !t.isYouTube).toList();
+    if (local.isEmpty) {
+      return [
+        _XpEmpty(icon: Icons.folder_open_rounded, title: 'No music on this phone yet', sub: 'Add a folder in Settings, or switch to YouTube Music above.'),
+      ];
+    }
+    final recent = [for (final id in appState.recent) if (audioHandler.trackById(id) case final t?) if (!t.isYouTube) t];
+    final byAlbum = <String, List<TrackItem>>{};
+    final byArtist = <String, List<TrackItem>>{};
+    for (final t in local) {
+      byAlbum.putIfAbsent(t.album, () => []).add(t);
+      byArtist.putIfAbsent(t.artist, () => []).add(t);
+    }
+    return [
+      if (recent.isNotEmpty)
+        spShelf(context, 'Recently played', [
+          for (var i = 0; i < min(15, recent.length); i++)
+            SpCard(art: xpTrackArt(recent[i]), title: recent[i].title, sub: recent[i].artist, onTap: () => xpPlay(recent, i)),
+        ]),
+      spShelf(context, 'Your albums', [
+        for (final e in byAlbum.entries.take(30))
+          SpCard(art: xpTrackArt(e.value.first), title: e.key, sub: e.value.first.artist, onTap: () => openLocalAlbum(context, e.key, e.value)),
+      ]),
+      spShelf(context, 'Your artists', height: 196, [
+        for (final e in byArtist.entries.take(30))
+          SpCard(art: xpTrackArt(e.value.first), title: e.key, sub: 'Artist', round: true, onTap: () => openLocalArtist(context, e.key, e.value)),
+      ]),
+    ];
+  }
+}
+
+// ── Search ──
+class SpSearchPage extends StatelessWidget {
+  final ValueChanged<int> onGoTab;
+  const SpSearchPage({super.key, required this.onGoTab});
+
+  static const _cats = [
+    ('Top charts', Icons.trending_up_rounded, Color(0xFFE8115B), 'Top 100 songs global', 4),
+    ('New releases', Icons.new_releases_rounded, Color(0xFF1E3264), 'New releases', 3),
+    ('Hip-Hop', Icons.mic_rounded, Color(0xFFBC5900), 'Hip-Hop playlists', 4),
+    ('Pop', Icons.star_rounded, Color(0xFF8D67AB), 'Pop playlists', 4),
+    ('Rock', Icons.bolt_rounded, Color(0xFFE91429), 'Rock playlists', 4),
+    ('R&B', Icons.favorite_rounded, Color(0xFFDC148C), 'R&B playlists', 4),
+    ('Chill', Icons.spa_rounded, Color(0xFF477D95), 'Chill playlists', 4),
+    ('Workout', Icons.fitness_center_rounded, Color(0xFF777777), 'Workout playlists', 4),
+    ('Electronic', Icons.graphic_eq_rounded, Color(0xFF0D73EC), 'Electronic playlists', 4),
+    ('Indie', Icons.album_rounded, Color(0xFF608108), 'Indie playlists', 4),
+    ('Metal', Icons.local_fire_department_rounded, Color(0xFF503750), 'Metal playlists', 4),
+    ('Latin', Icons.celebration_rounded, Color(0xFFE1118C), 'Latin playlists', 4),
+    ('Focus', Icons.center_focus_strong_rounded, Color(0xFF503750), 'Focus playlists', 4),
+    ('Sleep', Icons.bedtime_rounded, Color(0xFF1E3264), 'Sleep playlists', 4),
+    ('Party', Icons.nightlife_rounded, Color(0xFFAF2896), 'Party playlists', 4),
+    ('Throwback', Icons.history_rounded, Color(0xFF148A08), 'Throwback hits playlists', 4),
+  ];
+
+  void _open(BuildContext context, String q, int f) =>
+      Navigator.of(context).push(xpRoute(Scaffold(body: XpSearchPage(back: true, initialQuery: q, initialFilter: f))));
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final top = MediaQuery.of(context).padding.top;
+    return CustomScrollView(slivers: [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, top + 12, 16, 14),
+          child: Row(children: [
+            spAvatar(context),
+            const SizedBox(width: 12),
+            Expanded(child: Text('Search', style: xpT(26, w: FontWeight.w800))),
+          ]),
+        ),
+      ),
+      SliverPersistentHeader(
+        pinned: true,
+        delegate: _SpPinned(
+          height: 64,
+          child: Container(
+            color: cs.surface,
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: XpPress(
+              amount: 0.3,
+              onTap: () => Navigator.of(context).push(xpRoute(const Scaffold(body: XpSearchPage(back: true)))),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cs.brightness == Brightness.dark ? Colors.white : cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(children: [
+                  const Icon(Icons.search_rounded, color: Color(0xFF121212), size: 26),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('What do you want to listen to?',
+                        style: xpT(15.5, w: FontWeight.w600, c: const Color(0xFF555555))),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          child: Text('Browse all', style: xpT(17, w: FontWeight.w700)),
+        ),
+      ),
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, xpBottomPad(context)),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 1.75),
+          itemCount: _cats.length,
+          itemBuilder: (context, i) {
+            final c = _cats[i];
+            return XpPopIn(
+              index: i,
+              child: XpPress(
+                amount: 0.5,
+                onTap: () => _open(context, c.$4, c.$5),
+                child: Container(
+                  decoration: BoxDecoration(color: c.$3, borderRadius: BorderRadius.circular(10)),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(children: [
+                    Positioned(
+                      right: -14,
+                      bottom: -6,
+                      child: Transform.rotate(
+                        angle: 0.42,
+                        child: Container(
+                          width: 66,
+                          height: 66,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 8)],
+                          ),
+                          child: Icon(c.$2, color: Colors.white, size: 34),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 12,
+                      top: 12,
+                      right: 50,
+                      child: Text(c.$1, style: xpT(16.5, c: Colors.white, w: FontWeight.w800)),
+                    ),
+                  ]),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
+}
+
+class _SpPinned extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+  _SpPinned({required this.height, required this.child});
+  @override
+  double get minExtent => height;
+  @override
+  double get maxExtent => height;
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => child;
+  @override
+  bool shouldRebuild(covariant _SpPinned old) => true;
+}
+
+// ── Your Library ──
+class SpLibraryPage extends StatefulWidget {
+  const SpLibraryPage({super.key});
+  @override
+  State<SpLibraryPage> createState() => _SpLibraryPageState();
+}
+
+class _SpLibRow {
+  final Widget art;
+  final String title;
+  final String sub;
+  final VoidCallback onTap;
+  final bool round;
+  final String kind;
+  final bool pinned;
+  _SpLibRow(this.art, this.title, this.sub, this.onTap, {this.round = false, required this.kind, this.pinned = false});
+}
+
+class _SpLibraryPageState extends State<SpLibraryPage> {
+  String? _filter;
+  bool _grid = false;
+  String _sort = 'recent';
+  late final Future<List<YtPlaylistRef>> _pl = YouTubeMusic.libraryPlaylists().catchError((_) => <YtPlaylistRef>[]);
+  late final Future<List<YtArtist>> _ar = YouTubeMusic.libraryArtists().catchError((_) => <YtArtist>[]);
+  late final Future<List<YtAlbum>> _al = YouTubeMusic.libraryAlbums().catchError((_) => <YtAlbum>[]);
+
+  @override
+  void initState() {
+    super.initState();
+    for (final f in [_pl, _ar, _al]) {
+      f.then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    _grid = appState.b('sp_lib_grid');
+  }
+
+  List<_SpLibRow> _rows(BuildContext context, List<YtPlaylistRef> pls, List<YtArtist> ars, List<YtAlbum> als) {
+    final cs = context.cs;
+    final out = <_SpLibRow>[];
+    final liked = xpLikedTracks();
+    out.add(_SpLibRow(
+      Container(
+        decoration: BoxDecoration(gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, Colors.purple, 0.6)!])),
+        child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 26),
+      ),
+      'Liked Songs',
+      'Playlist • ${liked.length} songs',
+      () => Navigator.of(context).push(xpRoute(const XpCollectionPage.liked())),
+      kind: 'playlist',
+      pinned: true,
+    ));
+    if (OfflineStore.count > 0) {
+      out.add(_SpLibRow(
+        Container(color: cs.tertiaryContainer, child: Icon(Icons.download_done_rounded, color: cs.onTertiaryContainer, size: 26)),
+        'Downloaded',
+        'Playlist • ${OfflineStore.count} songs',
+        () => Navigator.of(context).push(xpRoute(const XpCollectionPage.downloads())),
+        kind: 'download',
+        pinned: true,
+      ));
+    }
+    for (final pl in appState.playlists) {
+      out.add(_SpLibRow(pmLocalPlaylistArt(pl), pl.name, 'Playlist • ${pl.trackIds.length} songs',
+          () => Navigator.of(context).push(xpRoute(XpCollectionPage.local(playlist: pl))), kind: 'playlist'));
+    }
+    for (final i in LibraryStore.saved.reversed) {
+      out.add(_SpLibRow(xpUrlArt(i.thumbnail), i.title, '${i.kind == 'album' ? 'Album' : 'Playlist'} • ${i.subtitle}',
+          () => LibraryStore.open(context, i), kind: i.kind == 'album' ? 'album' : 'playlist'));
+    }
+    for (final p in pls) {
+      if (p.playlistId == 'LM') continue;
+      out.add(_SpLibRow(xpUrlArt(p.thumbnail), p.title, 'Playlist • ${p.subtitle}',
+          () => Navigator.of(context).push(xpRoute(XpCollectionPage.youtube(playlistId: p.playlistId, title: p.title, thumbnail: p.thumbnail))),
+          kind: 'playlist'));
+    }
+    for (final a in als) {
+      out.add(_SpLibRow(xpUrlArt(a.thumbnail), a.title, 'Album • ${a.artist}',
+          () => Navigator.of(context).push(xpRoute(XpCollectionPage.album(url: a.url, title: a.title, thumbnail: a.thumbnail))),
+          kind: 'album'));
+    }
+    for (final a in ars) {
+      out.add(_SpLibRow(xpUrlArt(a.thumbnail, icon: Icons.person_rounded), a.name, 'Artist',
+          () => Navigator.of(context).push(xpRoute(XpArtistPage(url: a.url, name: a.name, thumbnail: a.thumbnail))),
+          round: true, kind: 'artist'));
+    }
+    final local = audioHandler.tracks.where((t) => !t.isYouTube).toList();
+    final byAlbum = <String, List<TrackItem>>{};
+    final byArtist = <String, List<TrackItem>>{};
+    for (final t in local) {
+      byAlbum.putIfAbsent(t.album, () => []).add(t);
+      byArtist.putIfAbsent(t.artist, () => []).add(t);
+    }
+    for (final e in byAlbum.entries) {
+      out.add(_SpLibRow(xpTrackArt(e.value.first), e.key, 'Album • ${e.value.first.artist}',
+          () => openLocalAlbum(context, e.key, e.value), kind: 'album'));
+    }
+    for (final e in byArtist.entries) {
+      out.add(_SpLibRow(xpTrackArt(e.value.first), e.key, 'Artist', () => openLocalArtist(context, e.key, e.value),
+          round: true, kind: 'artist'));
+    }
+    var list = _filter == null ? out : out.where((r) => r.kind == _filter || (_filter == 'download' && r.kind == 'download')).toList();
+    if (_sort == 'az') {
+      final pinned = list.where((r) => r.pinned).toList();
+      final rest = list.where((r) => !r.pinned).toList()..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      list = [...pinned, ...rest];
+    }
+    return list;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final top = MediaQuery.of(context).padding.top;
+    return ListenableBuilder(
+      listenable: Listenable.merge([appState, LibraryStore.revision, OfflineStore.revision, audioHandler.libraryRevision]),
+      builder: (context, _) => FutureBuilder<List<YtPlaylistRef>>(
+        future: _pl,
+        initialData: YouTubeMusic.cachedLibrary(),
+        builder: (context, pSnap) {
+          final rows = _rows(context, pSnap.data ?? const [], const [], const []);
+          return FutureBuilder<List<dynamic>>(
+            future: Future.wait([_ar, _al]),
+            builder: (context, s2) {
+              final all = s2.hasData
+                  ? _rows(context, pSnap.data ?? const [], s2.data![0] as List<YtArtist>, s2.data![1] as List<YtAlbum>)
+                  : rows;
+              return CustomScrollView(slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, top + 12, 6, 10),
+                    child: Row(children: [
+                      spAvatar(context),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text('Your Library', style: xpT(24, w: FontWeight.w800))),
+                      XpIconBtn(Icons.search_rounded, size: 44, bg: Colors.transparent, fg: cs.onSurface, tip: 'Search',
+                          onTap: () => Navigator.of(context).push(xpRoute(const Scaffold(body: XpSearchPage(back: true))))),
+                      XpIconBtn(Icons.add_rounded, size: 44, bg: Colors.transparent, fg: cs.onSurface, tip: 'New playlist',
+                          onTap: () => showCreateOrEditPlaylistDialog(context)),
+                    ]),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 38,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: [
+                        if (_filter != null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: XpPress(
+                              onTap: () => setState(() => _filter = null),
+                              child: Container(
+                                width: 36,
+                                decoration: BoxDecoration(color: cs.surfaceContainerHigh, shape: BoxShape.circle),
+                                child: Icon(Icons.close_rounded, size: 18, color: cs.onSurface),
+                              ),
+                            ),
+                          ),
+                        for (final f in const [('playlist', 'Playlists'), ('album', 'Albums'), ('artist', 'Artists'), ('download', 'Downloaded')])
+                          if (_filter == null || _filter == f.$1)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: XpPress(
+                                onTap: () => setState(() => _filter = _filter == f.$1 ? null : f.$1),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  padding: const EdgeInsets.symmetric(horizontal: 15),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: _filter == f.$1 ? cs.primary : cs.surfaceContainerHigh,
+                                    borderRadius: BorderRadius.circular(19),
+                                  ),
+                                  child: Text(f.$2,
+                                      style: xpT(13.5, w: FontWeight.w600, c: _filter == f.$1 ? cs.onPrimary : cs.onSurface)),
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 8, 4),
+                    child: Row(children: [
+                      TextButton.icon(
+                        onPressed: () => setState(() => _sort = _sort == 'recent' ? 'az' : 'recent'),
+                        icon: Icon(Icons.swap_vert_rounded, size: 18, color: cs.onSurface),
+                        label: Text(_sort == 'recent' ? 'Recents' : 'Alphabetical', style: xpT(13.5, w: FontWeight.w600)),
+                      ),
+                      const Spacer(),
+                      XpIconBtn(_grid ? Icons.view_list_rounded : Icons.grid_view_rounded, size: 40, bg: Colors.transparent,
+                          fg: cs.onSurface, tip: _grid ? 'List' : 'Grid', onTap: () {
+                        setState(() => _grid = !_grid);
+                        appState.setB('sp_lib_grid', _grid);
+                      }),
+                    ]),
+                  ),
+                ),
+                if (all.isEmpty)
+                  SliverToBoxAdapter(
+                    child: _XpEmpty(icon: Icons.library_music_outlined, title: 'Nothing here yet', sub: 'Save albums and playlists and they show up here.'),
+                  )
+                else if (_grid)
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(16, 4, 16, xpBottomPad(context)),
+                    sliver: SliverGrid.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3, mainAxisSpacing: 14, crossAxisSpacing: 12, childAspectRatio: 0.66),
+                      itemCount: all.length,
+                      itemBuilder: (context, i) => LayoutBuilder(
+                        builder: (context, c) => SpCard(
+                            art: all[i].art, title: all[i].title, sub: all[i].sub, round: all[i].round, onTap: all[i].onTap, size: c.maxWidth),
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: EdgeInsets.only(bottom: xpBottomPad(context)),
+                    sliver: SliverList.builder(
+                      itemCount: all.length,
+                      itemBuilder: (context, i) {
+                        final r = all[i];
+                        return XpPress(
+                          amount: 0.25,
+                          onTap: r.onTap,
+                          child: Container(
+                            color: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                            child: Row(children: [
+                              Container(
+                                width: 62,
+                                height: 62,
+                                decoration: BoxDecoration(
+                                  shape: r.round ? BoxShape.circle : BoxShape.rectangle,
+                                  borderRadius: r.round ? null : BorderRadius.circular(8),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: r.art,
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(r.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(15.5, w: FontWeight.w600)),
+                                  const SizedBox(height: 3),
+                                  Row(children: [
+                                    if (r.pinned) ...[
+                                      Icon(Icons.push_pin_rounded, size: 13, color: cs.primary),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    Expanded(
+                                      child: Text(r.sub, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                          style: xpT(13, w: FontWeight.w500, c: cs.onSurfaceVariant)),
+                                    ),
+                                  ]),
+                                ]),
+                              ),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ]);
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Stream player ──
+class _SpPlayer extends StatelessWidget {
+  final TrackItem track;
+  const _SpPlayer({required this.track});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final t = track;
+    return FutureBuilder<Color?>(
+      key: ValueKey(t.id),
+      future: spArtColor(t),
+      initialData: spArtColorNow(t),
+      builder: (context, snap) {
+        final wash = snap.data == null ? cs.surfaceContainerHigh : spWash(snap.data!, 0.3);
+        return Stack(children: [
+          Positioned.fill(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 700),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [wash, Color.lerp(wash, cs.surface, 0.75)!, cs.surface],
+                  stops: const [0, 0.6, 1],
+                ),
+              ),
+            ),
+          ),
+          Theme(
+            // White text on the wash, whatever the app theme.
+            data: Theme.of(context).copyWith(
+              colorScheme: cs.copyWith(onSurface: Colors.white, onSurfaceVariant: Colors.white70),
+            ),
+            child: Builder(builder: (context) => _body(context, t)),
+          ),
+        ]);
+      },
+    );
+  }
+
+  Widget _body(BuildContext context, TrackItem t) {
+    final cs = context.cs;
+    return LayoutBuilder(builder: (context, c) {
+      final art = max(160.0, min(c.maxWidth - 48, c.maxHeight - 360));
+      return Column(children: [
+        // Top bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 0),
+          child: Row(children: [
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+              onPressed: () => Navigator.maybePop(context),
+            ),
+            Expanded(
+              child: Column(children: [
+                Text('PLAYING FROM', style: xpT(10.5, ls: 1.2, w: FontWeight.w600, c: Colors.white70)),
+                Text(t.album.isEmpty || t.album == 'Unknown Album' ? t.artist : t.album,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                    style: xpT(13.5, w: FontWeight.w700, c: Colors.white)),
+              ]),
+            ),
+            IconButton(icon: const Icon(Icons.more_vert_rounded, color: Colors.white), onPressed: () => _xpMoreSheet(context, t)),
+          ]),
+        ),
+        Expanded(
+          child: Column(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+            GestureDetector(
+              onDoubleTap: () {
+                HapticFeedback.mediumImpact();
+                appState.toggleLike(t.id);
+              },
+              onHorizontalDragEnd: (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v < -300) audioHandler.skipToNext();
+                if (v > 300) audioHandler.skipToPrevious();
+              },
+              child: StreamBuilder<bool>(
+                stream: audioHandler.player.playingStream,
+                initialData: audioHandler.player.playing,
+                builder: (context, p) => AnimatedScale(
+                  // Art eases back a touch when paused.
+                  scale: p.data == true ? 1 : 0.9,
+                  duration: const Duration(milliseconds: 450),
+                  curve: Curves.easeOutBack,
+                  child: Container(
+                    width: art,
+                    height: art,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 34, offset: const Offset(0, 16))],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      child: KeyedSubtree(
+                        key: ValueKey(t.id),
+                        child: SizedBox.expand(
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox(width: 600, height: 600, child: xpTrackArt(t, hiRes: true)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(children: [
+                // Title + heart
+                ListenableBuilder(
+                  listenable: appState,
+                  builder: (context, _) {
+                    final liked = appState.isLiked(t.id);
+                    return Row(children: [
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: xpT(23, w: FontWeight.w800, c: Colors.white)),
+                          const SizedBox(height: 2),
+                          GestureDetector(
+                            onTap: () => goToArtist(context, t),
+                            child: Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: xpT(15.5, w: FontWeight.w500, c: Colors.white70)),
+                          ),
+                        ]),
+                      ),
+                      XpPress(
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          appState.toggleLike(t.id);
+                        },
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (c, a) => ScaleTransition(scale: CurvedAnimation(parent: a, curve: Curves.elasticOut), child: c),
+                          child: Icon(liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              key: ValueKey(liked), size: 30, color: liked ? cs.primary : Colors.white),
+                        ),
+                      ),
+                    ]);
+                  },
+                ),
+                const SizedBox(height: 14),
+                _SpSeek(track: t),
+                const SizedBox(height: 6),
+                // Transport
+                StreamBuilder<PlaybackState>(
+                  stream: audioHandler.playbackState,
+                  builder: (context, snap) {
+                    final shuffle = snap.data?.shuffleMode == AudioServiceShuffleMode.all;
+                    final repeat = snap.data?.repeatMode ?? AudioServiceRepeatMode.none;
+                    Widget toggle(IconData i, bool on, VoidCallback f, String tip) => Column(mainAxisSize: MainAxisSize.min, children: [
+                          XpIconBtn(i, size: 46, bg: Colors.transparent, fg: on ? cs.primary : Colors.white, tip: tip, onTap: f),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            width: on ? 5 : 0,
+                            height: 5,
+                            decoration: BoxDecoration(color: cs.primary, shape: BoxShape.circle),
+                          ),
+                        ]);
+                    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      toggle(Icons.shuffle_rounded, shuffle,
+                          () => audioHandler.setShuffleMode(shuffle ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all), 'Shuffle'),
+                      XpIconBtn(Icons.skip_previous_rounded, size: 58, bg: Colors.transparent, fg: Colors.white, onTap: audioHandler.skipToPrevious),
+                      const XpPlayButton(size: 74, bg: Colors.white, fg: Colors.black, pausedShape: XpShape.circle, playingShape: XpShape.cookie12),
+                      XpIconBtn(Icons.skip_next_rounded, size: 58, bg: Colors.transparent, fg: Colors.white, onTap: audioHandler.skipToNext),
+                      toggle(repeat == AudioServiceRepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                          repeat != AudioServiceRepeatMode.none, () {
+                        audioHandler.setRepeatMode(switch (repeat) {
+                          AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
+                          AudioServiceRepeatMode.all => AudioServiceRepeatMode.one,
+                          _ => AudioServiceRepeatMode.none,
+                        });
+                      }, 'Repeat'),
+                    ]);
+                  },
+                ),
+                const SizedBox(height: 6),
+                // Bottom row
+                Row(children: [
+                  XpIconBtn(Icons.lyrics_outlined, size: 42, bg: Colors.transparent, fg: Colors.white70, tip: 'Lyrics',
+                      onTap: () => Navigator.of(context).push(xpRoute(XpLyricsPage(track: t)))),
+                  XpIconBtn(Icons.tune_rounded, size: 42, bg: Colors.transparent, fg: Colors.white70, tip: 'Sound & tools',
+                      onTap: () => showXpToolsSheet(context)),
+                  const Spacer(),
+                  XpIconBtn(Icons.bedtime_outlined, size: 42, bg: Colors.transparent, fg: Colors.white70, tip: 'Sleep timer',
+                      onTap: () => showXpToolsSheet(context, focusSleep: true)),
+                  XpIconBtn(Icons.queue_music_rounded, size: 42, bg: Colors.transparent, fg: Colors.white70, tip: 'Queue',
+                      onTap: () => showXpQueueSheet(context)),
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 8),
+      ]);
+    });
+  }
+}
+
+/// Thin white seek bar that thickens while you drag.
+class _SpSeek extends StatefulWidget {
+  final TrackItem track;
+  const _SpSeek({required this.track});
+  @override
+  State<_SpSeek> createState() => _SpSeekState();
+}
+
+class _SpSeekState extends State<_SpSeek> {
+  double? _drag;
+  String _f(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: audioHandler.player.positionStream,
+      builder: (context, snap) {
+        final pos = snap.data ?? audioHandler.player.position;
+        final dur = audioHandler.player.duration ?? Duration(seconds: max(1, widget.track.durationSeconds));
+        final total = max(1, dur.inMilliseconds);
+        final v = _drag ?? (pos.inMilliseconds / total).clamp(0.0, 1.0);
+        final shown = _drag == null ? pos : Duration(milliseconds: (v * total).round());
+        return Column(children: [
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: _drag == null ? 4 : 7,
+              activeTrackColor: Colors.white,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+              overlayColor: Colors.white12,
+              thumbShape: RoundSliderThumbShape(enabledThumbRadius: _drag == null ? 6 : 9),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              trackShape: const RoundedRectSliderTrackShape(),
+            ),
+            child: SizedBox(
+              height: 28,
+              child: Slider(
+                value: v,
+                onChangeStart: (x) => setState(() => _drag = x),
+                onChanged: (x) => setState(() => _drag = x),
+                onChangeEnd: (x) {
+                  audioHandler.seek(Duration(milliseconds: (x * total).round()));
+                  setState(() => _drag = null);
+                },
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(children: [
+              Text(_f(shown), style: xpT(12, w: FontWeight.w500, c: Colors.white70)),
+              const Spacer(),
+              Text('-${_f(dur - shown < Duration.zero ? Duration.zero : dur - shown)}',
+                  style: xpT(12, w: FontWeight.w500, c: Colors.white70)),
             ]),
           ),
         ]);
